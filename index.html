@@ -21,7 +21,13 @@
       <section class="scoreboard" aria-label="游戏成绩">
         <div class="distance-stat"><span>距离</span><strong id="distance">0</strong><em>m</em></div>
         <div class="coin-stat"><i class="coin-icon">S</i><strong id="coins">0</strong></div>
+        <div class="score-stat"><span>积分</span> <b id="score">0</b> <em id="multiplier">×1</em></div>
         <div class="best-stat"><span>最佳</span><b id="best">0</b> m</div>
+      </section>
+      <section class="powerup-status" aria-label="生效中的道具">
+        <div id="effect-magnet" hidden><span>金币磁铁</span><progress max="1" value="1"></progress></div>
+        <div id="effect-sneakers" hidden><span>超级跑鞋</span><progress max="1" value="1"></progress></div>
+        <div id="effect-doubleScore" hidden><span>双倍积分</span><progress max="1" value="1"></progress></div>
       </section>
       <div id="toast" class="toast" aria-live="polite"></div>
       <section class="menu" id="menu" aria-label="游戏菜单">

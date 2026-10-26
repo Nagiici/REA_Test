@@ -4,6 +4,7 @@ import { loadRecoveredPack, characterFromGLB, loadYellowCharacter } from './asse
 import { createEntityVisual } from './entity-visuals.js';
 import { SourceRouteGenerator } from './route-generator.js';
 import { EnvironmentRouteGenerator } from './environment-layout.js';
+import { POWERUP_NAMES, POWERUP_SECONDS } from './powerups.js';
 import './style.css';
 
 const $ = id => document.getElementById(id);
@@ -67,7 +68,16 @@ function updateEntities(time) {
     if (!object) { object = createEntityVisual(entity, pack); entityObjects.set(entity.id, object); entityRoot.add(object); }
     object.visible = !entity.collected;
     object.position.set(entity.x ?? (entity.lane - 1) * game.config.laneSpacing, entity.type === 'coin' && !entity.visual ? entity.y ?? 1.1 : 0, -(entity.distance - game.state.distance));
-    if (entity.type === 'coin') { object.rotation.y = time * 1.6 + entity.id * 0.3; object.position.y += Math.sin(time * 2.2 + entity.id * 0.7) * 0.06; }
+    if (entity.type === 'coin') {
+      // Source coin visual matrices include their original elevation.
+      if (entity.attraction && entity.visual) object.position.y += entity.y - entity.attraction.y;
+      object.rotation.y = time * 1.6 + entity.id * 0.3;
+      if (!entity.attraction) object.position.y += Math.sin(time * 2.2 + entity.id * 0.7) * 0.06;
+    }
+    if (entity.type === 'powerup') object.traverse(node => {
+      const rotation = node.userData.pickupRotator;
+      if (rotation) node.rotation.y = time * rotation.speed * Math.PI / 180 + rotation.phase;
+    });
   }
   for (const [id, object] of entityObjects) if (!ids.has(id)) { entityRoot.remove(object); entityObjects.delete(id); }
 }
@@ -208,11 +218,20 @@ function frame(now) {
   if (s.phase !== previousPhase) { updateMenu(); previousPhase = s.phase; }
   $('distance').textContent = Math.floor(s.distance / game.config.distancePerMeter).toLocaleString();
   $('coins').textContent = s.coins.toLocaleString();
+  $('score').textContent = s.score.toLocaleString();
+  $('multiplier').textContent = `×${game.scoreMultiplier}`;
+  for (const [type, name] of Object.entries(POWERUP_NAMES)) {
+    const element = $(`effect-${type}`), remaining = s.powerups[type] ?? 0;
+    element.hidden = remaining <= 0;
+    element.querySelector('span').textContent = `${name} · ${Math.ceil(remaining)}秒`;
+    element.querySelector('progress').value = remaining / POWERUP_SECONDS[game.config.powerupTier];
+  }
   $('speed-line').style.width = `${(s.speed - game.config.initialSpeed) / (game.config.maximumSpeed - game.config.initialSpeed) * 100}%`;
   for (const event of game.drainEvents()) {
     if (event.type === 'coin') sound(980 + s.coins % 4 * 85, 0.055);
     if (event.type === 'jump') sound(420, 0.09, 'triangle');
     if (event.type === 'crash') sound(90, 0.25, 'sawtooth', 0.03);
+    if (event.type === 'powerup') { sound(740, 0.18, 'triangle'); toast(`${POWERUP_NAMES[event.powerup]} · ${event.duration}秒`); }
   }
   if (loaded) {
     updateEntities(time);
@@ -221,7 +240,7 @@ function frame(now) {
     character.object.position.set(p.x, p.y, 0);
     const lean = Math.max(-0.13, Math.min(0.13, ((p.lane - 1) * game.config.laneSpacing - p.x) * -0.16));
     character.object.rotation.z = THREE.MathUtils.damp(character.object.rotation.z, lean, 12, dt);
-    character.setAnimation(p.rollRemaining > 0 ? 'roll' : !p.grounded ? 'jump' : 'run', p.rollRemaining > 0 ? game.config.rollSeconds : 2 * Math.sqrt(2 * game.config.jumpHeight / game.config.gravity));
+    character.setAnimation(p.rollRemaining > 0 ? 'roll' : !p.grounded ? 'jump' : 'run', p.rollRemaining > 0 ? game.config.rollSeconds : 2 * Math.sqrt(2 * (s.powerups.sneakers ? 4 : game.config.jumpHeight) / game.config.gravity));
     if (s.phase === 'running' || s.phase === 'ready') character.mixer.update(dt * (s.phase === 'ready' ? 0.5 : 1));
   }
   const menuView = s.phase === 'ready' && innerWidth > 800;

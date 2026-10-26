@@ -1,4 +1,5 @@
 import { Matrix4, Quaternion, Vector3 } from 'three';
+import { SourceSpawnPointManager } from './source-spawn-points.js';
 
 const IDENTITY = new Matrix4();
 const vector = value => new Vector3().fromArray(value);
@@ -314,7 +315,7 @@ function capsuleBounds(fields, matrix, unitScale) {
 
 /** Reconstructs source graphs. Scheduling is driven by serialized RouteSection settings. */
 export class SourceRouteGenerator {
-  constructor(library, { seed = 48709, unitScale = 0.1, picker = sourceWeightedPicker } = {}) {
+  constructor(library, { seed = 48709, unitScale = 0.1, picker = sourceWeightedPicker, enabledPowerups = ['magnet', 'sneakers', 'doubleScore'], spawnPointOptions = {} } = {}) {
     this.library = library;
     this.unitScale = unitScale;
     this.initialDistance = 0;
@@ -322,6 +323,8 @@ export class SourceRouteGenerator {
     this.definitions = library.definitions ?? {};
     this.settings = library.settings;
     this.picker = picker;
+    this.enabledPowerups = new Set(enabledPowerups);
+    this.spawnPointManager = new SourceSpawnPointManager(spawnPointOptions);
     this.chunkIds = Object.keys(this.routes);
     this.reset(seed);
   }
@@ -337,6 +340,7 @@ export class SourceRouteGenerator {
     this.compilationCount = 0;
     this.currentSection = null;
     this.pickerState = new Map();
+    this.spawnPointManager.reset();
   }
 
   resolveChunk(chunkId) {
@@ -360,6 +364,7 @@ export class SourceRouteGenerator {
     };
     const matrix = new Matrix4().makeTranslation(0, 0, startDistance / this.unitScale);
     const instance = this.createInstance(chunk, String(chunkId), false, result);
+    instance.parentMatrix = matrix;
     const selectors = chunk.routeChunkFields?._selectors?.map(ref => ref.ref) ?? instance.selectors.map(item => item.script.id);
     this.performSelections(instance, selectors, result);
     this.activateTrackObjects(instance, result);
@@ -370,7 +375,7 @@ export class SourceRouteGenerator {
   createInstance(graph, scope, prefab, result, depth = 0) {
     if (depth > 30) throw new Error(`Recursive source prefab cycle: ${scope}`);
     const indexed = indexGraph(graph);
-    const instance = { graph, scope, prefab, depth, indexed, active: new Map(), positions: new Map(), spawned: new Map(), initialized: new Set(), visited: new Set(), selectors: [], result };
+    const instance = { graph, scope, prefab, depth, indexed, parentMatrix: IDENTITY, active: new Map(), positions: new Map(), spawned: new Map(), powerups: new Map(), initialized: new Set(), visited: new Set(), selectors: [], result };
     for (const node of graph.nodes) instance.active.set(String(node.id), node.active !== false || prefab && indexed.roots.includes(String(node.id)));
     const collect = id => {
       const node = indexed.nodes.get(id);
@@ -423,6 +428,44 @@ export class SourceRouteGenerator {
     result.decisions.push({ type: 'RandomizeOffset', scope: instance.scope, nodeId: node.id, draw, offsets, selected, source: script.source });
   }
 
+  nodeMatrix(instance, node) {
+    const lineage = [];
+    for (let current = node; current; current = instance.indexed.nodes.get(String(current.parentId))) lineage.unshift(current);
+    const matrix = instance.parentMatrix.clone();
+    for (const current of lineage) {
+      const root = instance.indexed.roots.includes(String(current.id));
+      const local = root && instance.prefab ? new Matrix4().makeScale(...current.scale)
+        : unityLocalMatrix({ ...current, position: instance.positions.get(String(current.id)) ?? current.position });
+      matrix.multiply(local);
+    }
+    return matrix;
+  }
+
+  selectSpawnPoint(instance, node, script, result) {
+    const fields = script.decodedFields;
+    const nativeZ = Math.fround(this.nodeMatrix(instance, node).elements[14]);
+    const { selected, decision } = this.spawnPointManager.select(fields, nativeZ, this.random);
+    result.decisions.push({ ...decision, scope: instance.scope, nodeId: node.id, source: script.source });
+    // SpawnSelectedTarget deactivates every unselected referenced GO, even if
+    // it is outside the Selector's direct children.
+    for (const item of this.spawnPointManager.pickups) {
+      const ref = fields[item.field]?.ref;
+      if (!ref) continue;
+      const target = this.library.objectIndex?.[ref];
+      const child = instance.indexed.nodes.get(String(target?.nodeId))
+        ?? instance.graph.nodes.find(candidate => String(candidate.gameObjectId) === String(fields[item.field].pathId));
+      if (!child) throw new Error(`Unresolved SpawnPoint target: ${ref}`);
+      this.setNodeActive(instance, String(child.id), item === selected, result);
+      if (item === selected) {
+        if (!item.powerup || !this.enabledPowerups.has(item.powerup)) {
+          result.diagnostics.push({ kind: 'selected-pickup-effect-unavailable', class: 'SpawnPointManager', field: item.field, powerupType: item.type, powerup: item.powerup, nativeZ, source: script.source });
+        } else {
+          instance.powerups.set(String(child.id), { ...item, spawnNode: node, selectorSource: script.source });
+        }
+      }
+    }
+  }
+
   performSelections(instance, selectorIds, result) {
     for (const id of selectorIds) {
       if (instance.visited.has(id)) continue;
@@ -442,7 +485,7 @@ export class SourceRouteGenerator {
         result.decisions.push({ type: 'Randomizer', scope: instance.scope, nodeId: node.id, activationDraw, indexDraw, probability, selectedIndex, selected, source: script.source });
       }
       if (script.class === 'SpawnPoint') {
-        result.diagnostics.push({ kind: 'unimplemented-behavior', class: 'SpawnPointManager', fields: script.decodedFields, source: script.source, scope: instance.scope, nodeId: node.id });
+        this.selectSpawnPoint(instance, node, script, result);
       }
       const provider = node.scripts.find(component => component.class === 'PlaceholderPrefabProvider');
       const lifecycle = node.scripts.find(component => component.class === 'SelectionPlaceholderLifecycle' || component.class === 'ModelSelectionPlaceholderLifecycle');
@@ -457,6 +500,7 @@ export class SourceRouteGenerator {
         const graph = this.definitions[key];
         if (!graph) throw new Error(`Unresolved source prefab at ${instance.scope}/${node.id}: ${key}`);
         const spawned = this.createInstance(graph, `${instance.scope}/${node.id}:${key}`, true, result, instance.depth + 1);
+        spawned.parentMatrix = this.nodeMatrix(instance, node);
         spawned.trainSpeedRatio = node.scripts.find(component => component.class === 'MovingTrainPlaceholder')?.decodedFields?._speed;
         instance.spawned.set(String(node.id), [spawned]);
         // The actual PlaceholderPrefab component supplies its initialized DFS
@@ -521,6 +565,22 @@ export class SourceRouteGenerator {
           result.decisions.push({ type: 'MovingTrain', scope, nodeId: node.id, ratio, rootZ, playerZ, dynamicChildId: child.id, source: moving.source });
         }
         const provenance = { asset: graph.source?.asset, nodeId: node.id, graph: scope, path, nativeMatrix: rowMajor(matrix), chunkStart: context.startDistance };
+        const pickup = instance.powerups.get(String(node.id));
+        if (pickup) {
+          const trigger = pickup.spawnNode.colliders.find(collider => collider.type === 'SphereCollider' && collider.fields.m_IsTrigger && collider.fields.m_Enabled);
+          if (!trigger) throw new Error(`Selected source pickup has no SpawnPoint trigger: ${scope}/${node.id}`);
+          const triggerMatrix = matrices.get(String(pickup.spawnNode.id)) ?? this.nodeMatrix(instance, pickup.spawnNode);
+          const c = trigger.fields.m_Center;
+          const center = new Vector3(c.x, c.y, c.z).applyMatrix4(triggerMatrix).multiplyScalar(this.unitScale);
+          const scales = new Vector3().setFromMatrixScale(triggerMatrix);
+          const radius = trigger.fields.m_Radius * Math.max(Math.abs(scales.x), Math.abs(scales.y), Math.abs(scales.z)) * this.unitScale;
+          const position = new Vector3().setFromMatrixPosition(matrix).multiplyScalar(this.unitScale);
+          const anchor = { x: position.x, distance: position.z };
+          result.entities.push({ type: 'powerup', powerup: pickup.powerup, powerupType: pickup.type, ...anchor, y: center.y,
+            sourcePickupTrigger: { center: center.toArray(), radius },
+            visual: { prefabKey: `powerup_${pickup.powerup}`, matrix: visualMatrix(matrix, anchor, this.unitScale) },
+            provenance: { ...provenance, selector: pickup.selectorSource, trigger: trigger.source, sourceGameObject: `${graph.source.asset}:${node.gameObjectId}` } });
+        }
         for (const script of node.scripts) {
           if (script.class === 'Environment' || script.class === 'EnvironmentBase') result.environmentRegions.push({ kind: script.class, fields: script.decodedFields, nativeMatrix: rowMajor(matrix), source: script.source });
           if (script.class === 'DeselectMeComponent') result.diagnostics.push({ kind: 'runtime-effect-unconfirmed', class: script.class, fields: script.decodedFields, source: script.source, provenance });

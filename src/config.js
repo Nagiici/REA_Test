@@ -17,8 +17,9 @@ export const DEFAULT_CONFIG = Object.freeze({
   rollingHeight: 0.65,
   lookAhead: 140,
   removeBehind: 18,
-  distanceScore: 3,
-  coinScore: 25,
+  // Fresh browser profile; raw native multiplier clamps player level to 0..30.
+  playerLevel: 1,
+  powerupTier: 0,
   seed: 48709,
 });
 
@@ -35,5 +36,6 @@ export const CONFIG_PROVENANCE = {
   jumpHeight: 'CharacterBase constructor VA 0x22a2d6c: jumpHeightNormal 20 / 10',
   jumpVelocity: 'CharacterBase.CalculateJumpVerticalSpeed VA 0x229b348: sqrt(2 * height * gravity)',
   distancePerMeter: 'Game constructor VA 0x11b98ec: distancePerMeter 8 / 10',
+  scoring: 'GameStats.CalculateScore: integer meter delta * current multiplier; CoinToScoreConversion: coins * rawMultiplier * 2',
   other: 'Browser implementation tuning; not recovered native behavior',
 };

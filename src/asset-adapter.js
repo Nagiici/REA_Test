@@ -170,6 +170,11 @@ function prefabFromUnity(data, meshData, textures) {
     node.userData.sourceNodeId = source.id; byId.set(source.id, node);
   }
   for (const source of data.nodes) (byId.get(source.parentId) ?? native).add(byId.get(source.id));
+  for (const source of data.nodes) for (const script of source.scripts ?? []) {
+    if (script.class !== 'PickupRotate') continue;
+    const fields = script.decodedFields, target = byId.get(fields?._target?.pathId);
+    if (target) target.userData.pickupRotator = { speed: fields._speed, phase: fields._rotatePhase };
+  }
   native.scale.set(0.1, 0.1, -0.1);
   const wrapper = new THREE.Group(); wrapper.name = data.name; wrapper.add(native); return wrapper;
 }

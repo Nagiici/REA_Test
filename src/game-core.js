@@ -1,4 +1,5 @@
 import { DEFAULT_CONFIG } from './config.js';
+import { POWERUP_SECONDS, POWERUP_NAMES, SNEAKERS, curveValue, touchesPowerup } from './powerups.js';
 
 const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 
@@ -72,6 +73,7 @@ export class RunnerGame {
     this.sectionCount = 0;
     this.state = {
       phase: 'ready', distance: 0, coins: 0, score: 0,
+      baseScore: 0, scoredMeters: 0, powerups: {},
       speed: this.config.initialSpeed, elapsed: 0,
       player: { lane: 1, x: 0, y: 0, velocityY: 0, rollRemaining: 0,
         grounded: true, floor: 0, laneFrom: 0, laneElapsed: 0, laneDuration: this.config.laneChangeSeconds },
@@ -109,10 +111,15 @@ export class RunnerGame {
       p.rollRemaining = 0;
       p.velocityY = Math.sqrt(2 * this.config.gravity * this.config.jumpHeight);
       p.grounded = false;
+      if (this.state.powerups.sneakers > 0) {
+        p.sneakersJump = { startY: p.y, startDistance: this.state.distance,
+          length: 2 * this.state.speed * Math.sqrt(2 * SNEAKERS.height * this.config.gravity) / this.config.gravity * SNEAKERS.apexRatio };
+      }
       this.events.push({ type: 'jump' });
       return true;
     }
     if (action === 'roll') {
+      p.sneakersJump = null;
       if (!p.grounded) p.velocityY = Math.min(p.velocityY, -12);
       p.rollRemaining = this.config.rollSeconds;
       this.events.push({ type: 'roll' });
@@ -135,6 +142,10 @@ export class RunnerGame {
   step(dt) {
     const s = this.state, p = s.player, c = this.config;
     const previousDistance = s.distance;
+    for (const type of Object.keys(s.powerups)) {
+      s.powerups[type] = Math.max(0, s.powerups[type] - dt);
+      if (s.powerups[type] <= 1e-8) { delete s.powerups[type]; this.events.push({ type: 'powerup-end', powerup: type }); }
+    }
     s.elapsed += dt;
     s.speed = Math.min(c.maximumSpeed, s.speed + c.acceleration * dt);
     s.distance += s.speed * dt;
@@ -148,8 +159,15 @@ export class RunnerGame {
     p.x = p.laneFrom + ((p.lane - 1) * c.laneSpacing - p.laneFrom) * blend;
     p.rollRemaining = Math.max(0, p.rollRemaining - dt);
     const previousY = p.y;
-    p.velocityY -= c.gravity * dt;
-    p.y += p.velocityY * dt;
+    if (p.sneakersJump) {
+      const jump = p.sneakersJump, progress = (s.distance - jump.startDistance) / jump.length;
+      p.y = jump.startY + curveValue(SNEAKERS.curve, progress) * SNEAKERS.height;
+      p.velocityY = 0;
+      if (progress >= 1) p.sneakersJump = null;
+    } else {
+      p.velocityY -= c.gravity * dt;
+      p.y += p.velocityY * dt;
+    }
     const floor = this.surfaceHeight(s.distance, p.x, previousY);
     if (p.y <= floor && p.velocityY <= 0) {
       if (!p.grounded) this.events.push({ type: 'land' });
@@ -159,16 +177,36 @@ export class RunnerGame {
     } else p.grounded = false;
     p.floor = floor;
 
+    // Score only new whole meters with the multiplier active at that instant.
+    // Enabling 2x must never retroactively double the distance already run.
+    const meters = Math.floor(s.distance / c.distancePerMeter);
+    s.baseScore += Math.max(0, meters - s.scoredMeters) * this.scoreMultiplier;
+    s.scoredMeters = meters;
+
     for (const e of this.entities) {
       if (e.collected) continue;
       const x = e.x ?? (e.lane - 1) * c.laneSpacing;
       const longitudinal = e.distance - s.distance;
+      if (e.type === 'powerup') {
+        if (touchesPowerup(e, p, s.distance, previousDistance) && this.activatePowerup(e.powerup)) e.collected = true;
+        continue;
+      }
       if (e.type === 'coin') {
+        this.attractCoin(e);
+        if (e.attraction) {
+          const flight = e.attraction;
+          const t = Math.min(1, (s.elapsed - flight.started) / flight.duration), ease = t * t;
+          // The source target is a character attachment. A stable body-space
+          // target adapts it to the replacement character (not an APK bone).
+          e.x = flight.x + (p.x - flight.x) * ease;
+          e.y = flight.y + (p.y + 0.8 - flight.y) * ease;
+          e.distance = flight.distance + (s.distance - flight.distance) * ease;
+          if (t >= 1) this.collectCoin(e);
+          continue;
+        }
         const center = p.y + (p.rollRemaining > 0 ? 0.4 : 1);
         if (Math.abs(longitudinal) < 0.72 && Math.abs(x - p.x) < 0.7 && Math.abs((e.y ?? 1.1) - center) < 1) {
-          e.collected = true;
-          s.coins++;
-          this.events.push({ type: 'coin', id: e.id, x, y: e.y ?? 1.1 });
+          this.collectCoin(e);
         }
         continue;
       }
@@ -201,9 +239,49 @@ export class RunnerGame {
       s.phase = 'gameover'; s.collision = { type: 'gap', distance: s.distance };
       this.events.push({ type: 'crash', obstacle: 'gap' });
     }
-    s.score = Math.floor(s.distance * c.distanceScore) + s.coins * c.coinScore;
+    s.score = s.baseScore + s.coins * this.rawMultiplier * 2;
     this.entities = this.entities.filter(e => e.distance + (e.depth ?? 0) / 2 > s.distance - c.removeBehind);
     this.ensureCourse();
+  }
+
+  get rawMultiplier() { return clamp(Math.floor(this.config.playerLevel), 0, 30); }
+  get scoreMultiplier() { return this.rawMultiplier * (this.state.powerups.doubleScore > 0 ? 2 : 1); }
+
+  activatePowerup(type) {
+    if (!(type in POWERUP_NAMES)) return false;
+    // Collection.Add resets an existing DoubleScore before TriggerPowerup's
+    // +30*multiplier reward, then Begin enables the new double-score effect.
+    if (type === 'doubleScore') delete this.state.powerups.doubleScore;
+    this.state.baseScore += 30 * this.scoreMultiplier;
+    this.state.powerups[type] = POWERUP_SECONDS[clamp(Math.floor(this.config.powerupTier), 0, POWERUP_SECONDS.length - 1)];
+    this.state.score = this.state.baseScore + this.state.coins * this.rawMultiplier * 2;
+    this.events.push({ type: 'powerup', powerup: type, duration: this.state.powerups[type] });
+    return true;
+  }
+
+  attractCoin(coin) {
+    const s = this.state, p = s.player;
+    if ((!s.powerups.magnet && !s.powerups.sneakers) || coin.attraction) return;
+    const x = coin.x ?? (coin.lane - 1) * this.config.laneSpacing, y = coin.y ?? 1.1;
+    const distance = Math.hypot(x - p.x, y - p.y, coin.distance - s.distance);
+    const magnet = s.powerups.magnet && (p.y < 7) === (y < 7)
+      && Math.hypot(x - p.x, y - (p.y + 1.07), coin.distance - (s.distance - 1)) <= 8;
+    // LongMagnet's Y capsule is rotated -30 degrees about X, so it reaches
+    // below AND ahead of the airborne player. Preserve that source transform.
+    const axisY = Math.sqrt(3) / 2, axisZ = -0.5;
+    const dy = y - (p.y - 3.85 * axisY + 0.15);
+    const dz = coin.distance - (s.distance + 1.925 + 0.3 * axisY);
+    const along = clamp(dy * axisY + dz * axisZ, -4.55, 4.55);
+    const sneakers = s.powerups.sneakers && Math.hypot(x - p.x, dy - along * axisY, dz - along * axisZ) <= 0.2;
+    if (!magnet && !sneakers) return;
+    coin.attraction = { x, y, distance: coin.distance, started: s.elapsed,
+      duration: Math.max(this.config.fixedStep, distance / ((magnet ? 15 : 20) * s.speed / 11)) };
+  }
+
+  collectCoin(coin) {
+    if (coin.collected) return;
+    coin.collected = true; this.state.coins++;
+    this.events.push({ type: 'coin', id: coin.id, x: coin.x, y: coin.y });
   }
 
   isCrossingRampSeam(train) {

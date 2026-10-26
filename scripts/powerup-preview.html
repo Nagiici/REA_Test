@@ -1,0 +1,16 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>道具回归预览</title>
+<style>body{margin:0;background:#173e3b;overflow:hidden}iframe{display:block;border:0;width:100%;height:100dvh}nav{position:fixed;z-index:10;bottom:60px;left:24px;display:flex;gap:8px}button{border:0;border-radius:7px;padding:10px 14px;background:#f1f4d9;color:#173e3b}#qa-status{position:fixed;bottom:105px;left:24px;color:white;font:12px system-ui}</style>
+<iframe src="/" title="游戏验证"></iframe><nav><button id="setup">道具拾取场景</button><button id="advance">推进半秒</button><button id="jump">跳跃</button><button id="roll">翻滚</button></nav><output id="qa-status">加载中</output>
+<script type="module">
+const frame=document.querySelector('iframe'),status=document.querySelector('#qa-status');
+let runner;
+const wait=setInterval(()=>{if(frame.contentWindow.__runner?.ready){runner=frame.contentWindow.__runner;const style=frame.contentDocument.createElement('style');style.textContent='#menu{display:none}';frame.contentDocument.head.append(style);clearInterval(wait);status.textContent='已就绪 · 仅本地回归场景';}},100);
+function report(){const s=runner.game.state;status.textContent=`本地回归场景 · 金币 ${s.coins} · 积分 ${s.score} · 高度 ${s.player.y.toFixed(2)} · 资源错误 ${runner.errors.length}`;}
+function advance(){if(!runner)return;const g=runner.game;g.state.phase='running';for(let i=0;i<60;i++)g.advance(1/120);g.state.phase='paused';report();}
+document.querySelector('#setup').onclick=()=>{if(!runner)return;const g=runner.game;g.reset();g.entities=[];g.nextSection=1e9;
+for(const [i,type] of ['magnet','sneakers','doubleScore'].entries())g.addEntity({type:'powerup',powerup:type,x:0,distance:3+i*2,y:.85,sourcePickupTrigger:{center:[0,.85,3+i*2],radius:.7},visual:{prefabKey:`powerup_${type}`}});
+for(let i=0;i<20;i++)for(const x of [-2,2])g.addEntity({type:'coin',x,y:1,distance:7+i*1.5});
+g.start();advance();};
+document.querySelector('#advance').onclick=advance;
+for(const action of ['jump','roll'])document.querySelector('#'+action).onclick=()=>{if(!runner)return;runner.game.state.phase='running';runner.game.action(action);advance();};
+</script></html>
