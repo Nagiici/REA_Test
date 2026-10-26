@@ -1,0 +1,47 @@
+{
+  "rigNodeCount": 90,
+  "boneCount": 26,
+  "meshes": {
+    "jake_Mesh": {
+      "maxRestWorldTimesInverseBindIdentityDeviation": 1.6672192373057282e-06,
+      "skinIndexMax": 25,
+      "allTriangleIndicesValid": true,
+      "bonePathHashesExact": true,
+      "maxWeightSumDeviation": 8.940696716308594e-08
+    },
+    "jake_head": {
+      "maxRestWorldTimesInverseBindIdentityDeviation": 1.6672192373057282e-06,
+      "skinIndexMax": 19,
+      "allTriangleIndicesValid": true,
+      "bonePathHashesExact": true,
+      "maxWeightSumDeviation": 2.9802322387695312e-08
+    }
+  },
+  "animations": {
+    "run": {
+      "duration": 0.4166666865348816,
+      "trackCount": 115,
+      "unresolvedPaths": [],
+      "unresolvedSkinBonePaths": []
+    },
+    "roll": {
+      "duration": 0.5416669845581055,
+      "trackCount": 115,
+      "unresolvedPaths": [],
+      "unresolvedSkinBonePaths": []
+    },
+    "jump": {
+      "duration": 0.6666669845581055,
+      "trackCount": 69,
+      "unresolvedPaths": [
+        "AnimationRig/ctrls/Cog_ctrl_grp",
+        "AnimationRig/ctrls/Cog_ctrl_grp/Cog_ctrl",
+        "Root/eyeDirection_loc_grp",
+        "Root/eyeDirection_loc_grp/eyeDirection_loc",
+        "Root/eye_switch_loc_grp",
+        "Root/eye_switch_loc_grp/eye_switch_loc"
+      ],
+      "unresolvedSkinBonePaths": []
+    }
+  }
+}
