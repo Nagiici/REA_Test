@@ -1,0 +1,18 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>黄色角色动作检查</title>
+<style>body{margin:0;background:#e5e9df;font:16px system-ui}nav{position:fixed;top:16px;left:16px;z-index:1;display:flex;gap:8px}button{padding:10px;border:0;border-radius:8px;background:white}#status{position:fixed;bottom:16px;left:16px}</style>
+<nav><button data-action="run">跑步</button><button data-action="jump">跳跃</button><button data-action="roll">翻滚</button><button id="pause">暂停动作</button><button id="front">正面</button><button id="side">侧面</button><button id="back">背面</button></nav><div id="status">正在加载</div>
+<script type="module">
+import * as T from 'three';
+import {loadYellowCharacter} from '/src/asset-adapter.js';
+const renderer=new T.WebGLRenderer({antialias:true}); renderer.setSize(innerWidth,innerHeight);renderer.setPixelRatio(Math.min(devicePixelRatio,2));document.body.append(renderer.domElement);renderer.outputColorSpace=T.SRGBColorSpace;
+const scene=new T.Scene();scene.background=new T.Color(0xe5e9df);scene.add(new T.HemisphereLight(0xffffff,0x777766,2.5));const sun=new T.DirectionalLight(0xffffff,3);sun.position.set(-3,5,5);scene.add(sun);
+const camera=new T.PerspectiveCamera(38,innerWidth/innerHeight,.01,100);camera.position.set(0,1.3,4.5);camera.lookAt(0,1,0);
+const character=await loadYellowCharacter();scene.add(character.object);character.object.rotation.y=Math.PI;let paused=false,last=performance.now();
+document.querySelector('#status').textContent='黄色角色 · 原版 26 骨骼适配 · 跑步';
+document.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>{character.setAnimation('run');character.setAnimation(b.dataset.action,b.dataset.action==='roll'?.7:1.2649);paused=false;document.querySelector('#status').textContent='黄色角色 · '+b.textContent;});
+document.querySelector('#pause').onclick=()=>{paused=!paused;document.querySelector('#pause').textContent=paused?'继续动作':'暂停动作';};
+document.querySelector('#front').onclick=()=>character.object.rotation.y=Math.PI;
+document.querySelector('#side').onclick=()=>character.object.rotation.y=Math.PI/2;
+document.querySelector('#back').onclick=()=>character.object.rotation.y=0;
+function frame(now){const dt=Math.min((now-last)/1000,.05);last=now;if(!paused)character.mixer.update(dt);renderer.render(scene,camera);requestAnimationFrame(frame)}requestAnimationFrame(frame);
+</script></html>

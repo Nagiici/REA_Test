@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RunnerGame } from './game-core.js';
-import { loadRecoveredPack, characterFromGLB } from './asset-adapter.js';
+import { loadRecoveredPack, characterFromGLB, loadYellowCharacter } from './asset-adapter.js';
 import { createEntityVisual } from './entity-visuals.js';
 import { SourceRouteGenerator } from './route-generator.js';
 import { EnvironmentRouteGenerator } from './environment-layout.js';
@@ -84,12 +84,12 @@ window.__runner = { game, renderer, scene, camera, pack: null, character: null, 
   snapshot: () => ({ phase: game.state.phase, distance: game.state.distance, player: { ...game.state.player }, entities: game.entities.length, character: character?.name, animations: character?.animationNames, drawCalls: renderer.info.render.calls }),
 };
 
-loadRecoveredPack().then(result => {
+Promise.all([loadRecoveredPack(), loadYellowCharacter()]).then(([result, yellowCharacter]) => {
   pack = result; window.__runner.pack = result;
   if (!result.routeLibrary || !result.environmentBindings) throw new Error('原版关卡数据尚未就绪');
   const source = new SourceRouteGenerator(result.routeLibrary, { seed: game.config.seed });
   game.setRouteGenerator(new EnvironmentRouteGenerator(source, result.environmentBindings));
-  installCharacter(result.character); loaded = true; window.__runner.ready = true;
+  installCharacter(yellowCharacter); loaded = true; window.__runner.ready = true;
   $('start').disabled = false; $('start-label').textContent = '开始奔跑';
 }).catch(error => {
   console.error(error); window.__runner.errors.push(error.message);

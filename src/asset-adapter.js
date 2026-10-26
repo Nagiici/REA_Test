@@ -224,7 +224,7 @@ export async function loadRecoveredPack(base = '/assets/recovered/') {
     cloneProp: name => props[name]?.clone(true), clonePrefab: name => prefabs[name]?.clone(true) };
 }
 
-export async function characterFromGLB(buffer) {
+export async function characterFromGLB(buffer, { name = '自定义角色', source = 'import' } = {}) {
   const gltf = await new GLTFLoader().parseAsync(buffer, '');
   const wrapper = new THREE.Group(), native = gltf.scene;
   native.updateMatrixWorld(true);
@@ -232,23 +232,34 @@ export async function characterFromGLB(buffer) {
   if (!Number.isFinite(size.y) || size.y < 0.0001) throw new Error('模型缺少有效几何');
   const scale = 1.95 / size.y;
   native.scale.multiplyScalar(scale);
-  native.position.set(-(box.min.x + box.max.x) / 2 * scale, -box.min.y * scale, -(box.min.z + box.max.z) / 2 * scale);
   native.rotation.y = Math.PI;
+  native.updateMatrixWorld(true);
+  const aligned = new THREE.Box3().setFromObject(native);
+  native.position.add(new THREE.Vector3(-(aligned.min.x + aligned.max.x) / 2, -aligned.min.y, -(aligned.min.z + aligned.max.z) / 2));
   native.traverse(object => { if (object.isMesh) { object.castShadow = true; object.frustumCulled = false; } });
   wrapper.add(native);
   const mixer = new THREE.AnimationMixer(native);
   const actions = new Map();
   for (const clip of gltf.animations) actions.set(clip.name, mixer.clipAction(clip));
   let playing = null;
-  function setAnimation(name) {
+  function setAnimation(name, duration) {
     const match = [...actions.keys()].find(key => key.toLowerCase().includes(name)) ?? [...actions.keys()][0];
     if (!match || playing === match) return;
-    const action = actions.get(match); action.reset().play();
-    if (playing) actions.get(playing).crossFadeTo(action, 0.15, false);
+    const action = actions.get(match); action.reset();
+    if (name === 'run') { action.setLoop(THREE.LoopRepeat); action.clampWhenFinished = false; action.timeScale = 1; }
+    else { action.setLoop(THREE.LoopOnce, 1); action.clampWhenFinished = true; action.setDuration(duration || action.getClip().duration); }
+    action.play();
+    if (playing) actions.get(playing).crossFadeTo(action, 0.08, false);
     playing = match;
   }
   setAnimation('run');
-  return { object: wrapper, native, mixer, setAnimation, source: 'import', name: '自定义角色', animationNames: gltf.animations.map(c => c.name) };
+  return { object: wrapper, native, mixer, setAnimation, source, name, animationNames: gltf.animations.map(c => c.name) };
+}
+
+export async function loadYellowCharacter() {
+  const response = await fetch('/assets/character/yellow-runner.glb');
+  if (!response.ok) throw new Error(`黄色角色读取失败 (${response.status})`);
+  return characterFromGLB(await response.arrayBuffer(), { name: '黄色小怪兽', source: 'hi3d-with-recovered-jake-motion' });
 }
 
 export { cloneSkeleton };
