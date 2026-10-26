@@ -2,8 +2,8 @@
   "input": "outputs/yellow-character-47e54de8/yellow-character-full-body.glb",
   "output": "web/public/assets/character/yellow-runner.glb",
   "sourceBytes": 58272900,
-  "bytes": 6236500,
-  "sha256": "485e741d82014d2e58f9eb8a754965ea462d1203096722191f79530b834670c0",
+  "bytes": 6233396,
+  "sha256": "41591f5b5cf47143c93d45cd6416a8802abe2cc4c1e856fbaaa2af0b3dcb711c",
   "bones": [
     {
       "name": "Root_jnt",
@@ -294,10 +294,10 @@
       "duration": 0.5416669845581055,
       "frames": 67,
       "mappedBones": 26,
-      "maximumHeight": 1.48315616032728,
+      "maximumHeight": 1.4892474532367665,
       "groundCorrection": [
-        -0.23426037648473064,
-        0.10442484986796918
+        -0.01224752810850227,
+        0.47482638595031657
       ]
     }
   ],
@@ -310,7 +310,8 @@
       "New skin weights for yellow mesh",
       "T-pose to hanging-arm rest alignment",
       "Reduced arm rotation amplitude for fused arm/torso geometry",
-      "In-place motion with floor correction and roll tuck"
+      "In-place motion with floor correction; constant body scale",
+      "Roll endpoint blended to start for sustained looping"
     ]
   }
 }

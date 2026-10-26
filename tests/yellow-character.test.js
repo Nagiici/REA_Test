@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import * as THREE from 'three';
 import { characterFromGLB } from '../src/asset-adapter.js';
+import { RunnerGame } from '../src/game-core.js';
 
 const bytes = fs.readFileSync(new URL('../public/assets/character/yellow-runner.glb', import.meta.url));
 const length = bytes.readUInt32LE(12), document = JSON.parse(bytes.subarray(20, 20 + length));
@@ -61,18 +62,64 @@ test('recovered run motion moves the yellow legs and keeps the skinned mesh abov
   assert.ok(minimum > -.04, `Lowest run surface: ${minimum}`);
 });
 
-test('jump and roll use one-shot durations, roll tucks, and run can resume', async () => {
+test('jump remains a one-shot while roll keeps its size and can return to run', async () => {
   const character = await load();
   character.setAnimation('jump', 1.26); character.mixer.update(.4);
   const jump = character.mixer._actions.find(a=>a.getClip().name==='jump');
   assert.equal(jump.loop, THREE.LoopOnce); assert.ok(jump.isRunning());
   character.setAnimation('roll', .7); character.mixer.update(.35);
   const rollBox=bounds(character);
-  assert.ok(rollBox.max.y-rollBox.min.y < .85, `Roll height: ${rollBox.max.y-rollBox.min.y}`);
+  assert.ok(character.native.getObjectByName('Root_jnt').scale.distanceTo(new THREE.Vector3(1,1,1)) < 1e-6);
   assert.ok(rollBox.min.y > -.04);
   character.mixer.update(.5);
-  assert.ok(character.mixer._actions.find(a=>a.getClip().name==='roll').paused);
+  assert.ok(character.mixer._actions.find(a=>a.getClip().name==='roll').isRunning());
   character.setAnimation('run'); character.mixer.update(.2);
   assert.ok(character.mixer._actions.find(a=>a.getClip().name==='run').isRunning());
   assert.ok(bounds(character).max.y > 1.4);
+});
+
+test('roll never scales the skeleton and consecutive cycles meet at the same pose', async () => {
+  const character = await load(); character.setAnimation('roll', .7);
+  const action = character.mixer._actions.find(a => a.getClip().name === 'roll');
+  const root = character.native.getObjectByName('Root_jnt');
+  character.mixer.update(.1);
+  for (let i=0;i<42;i++) {
+    character.mixer.update(1/60);
+    character.native.traverse(bone => { if (bone.isBone) assert.ok(bone.scale.distanceTo(new THREE.Vector3(1,1,1)) < 1e-6, `${bone.name} changed size`); });
+  }
+  assert.equal(action.loop, THREE.LoopRepeat);
+  const clip = document.animations.find(a => a.name === 'roll');
+  const binary = bytes.subarray(28 + length);
+  for (const channel of clip.channels) {
+    const accessor = document.accessors[clip.samplers[channel.sampler].output], view = document.bufferViews[accessor.bufferView];
+    const values = new Float32Array(Uint8Array.from(binary.subarray(view.byteOffset, view.byteOffset + view.byteLength)).buffer);
+    const width = channel.target.path === 'rotation' ? 4 : 3;
+    if (width === 4) {
+      const first = new THREE.Quaternion().fromArray(values).normalize(), last = new THREE.Quaternion().fromArray(values, values.length-4).normalize();
+      assert.ok(first.angleTo(last)<1e-5, `Rotation loop seam: ${document.nodes[channel.target.node].name}`);
+    } else for (let j=0;j<width;j++) assert.ok(Math.abs(values[j]-values[values.length-width+j]) < 1e-5, `Loop seam: ${document.nodes[channel.target.node].name}`);
+  }
+  assert.ok(Number.isFinite(root.position.y));
+});
+
+test('rapid roll inputs keep animating beyond the first clip and recover after inputs stop', async () => {
+  const character = await load(), game = new RunnerGame();
+  game.entities=[]; game.nextSection=1e9; game.start();
+  let previousQuaternion = null, changes = 0;
+  for (let i=0;i<240;i++) {
+    if (i < 180 && i%12===0) game.action('roll');
+    game.advance(1/60);
+    const rolling=game.state.player.rollRemaining>0;
+    character.setAnimation(rolling?'roll':'run', game.config.rollSeconds);
+    character.mixer.update(1/60);
+    const q=character.native.getObjectByName('Root_jnt').quaternion.clone();
+    if (i>60 && i<180) {
+      assert.ok(character.mixer._actions.find(a=>a.getClip().name==='roll').isRunning(), `Roll froze at frame ${i}`);
+      if(previousQuaternion && q.angleTo(previousQuaternion)>.001) changes++;
+    }
+    previousQuaternion=q;
+  }
+  assert.ok(changes>100, `Only ${changes} moving frames during sustained rolling`);
+  assert.equal(game.state.player.rollRemaining,0);
+  assert.ok(character.mixer._actions.find(a=>a.getClip().name==='run').isRunning());
 });

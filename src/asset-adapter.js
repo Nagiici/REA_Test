@@ -125,7 +125,11 @@ function characterFromUnity(meshes, rig, texture, animations) {
     const next = actions[name];
     if (!next) return;
     next.reset();
-    if (name === 'run') { next.setLoop(THREE.LoopRepeat); next.timeScale = 1; }
+    if (name === 'run' || name === 'roll') {
+      next.setLoop(THREE.LoopRepeat); next.clampWhenFinished = false;
+      if (name === 'roll') next.setDuration(duration || clips[name].duration);
+      else next.timeScale = 1;
+    }
     else { next.setLoop(THREE.LoopOnce, 1); next.clampWhenFinished = true; next.setDuration(duration || clips[name].duration); }
     next.play();
     if (current && actions[current]) actions[current].crossFadeTo(next, 0.08, false);
@@ -246,7 +250,13 @@ export async function characterFromGLB(buffer, { name = '自定义角色', sourc
     const match = [...actions.keys()].find(key => key.toLowerCase().includes(name)) ?? [...actions.keys()][0];
     if (!match || playing === match) return;
     const action = actions.get(match); action.reset();
-    if (name === 'run') { action.setLoop(THREE.LoopRepeat); action.clampWhenFinished = false; action.timeScale = 1; }
+    // The simulation owns rollRemaining and may extend it on repeated input.
+    // Keep rolling until that state ends; a clamped one-shot would freeze.
+    if (name === 'run' || name === 'roll') {
+      action.setLoop(THREE.LoopRepeat); action.clampWhenFinished = false;
+      if (name === 'roll') action.setDuration(duration || action.getClip().duration);
+      else action.timeScale = 1;
+    }
     else { action.setLoop(THREE.LoopOnce, 1); action.clampWhenFinished = true; action.setDuration(duration || action.getClip().duration); }
     action.play();
     if (playing) actions.get(playing).crossFadeTo(action, 0.08, false);
