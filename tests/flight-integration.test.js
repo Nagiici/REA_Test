@@ -47,3 +47,15 @@ test('flight state, timers and scoring are independent of render frame rate',()=
   for(const [g,hz] of [[a,30],[b,120]]){g.action('board');g.activatePowerup('jetpack');frames(g,11,hz);}
   assert.deepEqual(a.state,b.state);
 });
+
+test('board clearing removes source train visuals with their collision group, preserving scenery and later instances',()=>{
+  const g=emptyGame();
+  const scope='chunk/group:1',p={graph:scope,chunkStart:0};
+  g.addEntity({type:'train',lane:1,distance:10,depth:18,visual:null,provenance:p});
+  const near=g.addEntity({type:'decoration',x:0,distance:6,provenance:{graph:scope+'/car:1',chunkStart:0}});
+  const later=g.addEntity({type:'decoration',x:0,distance:106,provenance:{graph:scope+'/car:1',chunkStart:100}});
+  const scenery=g.addEntity({type:'decoration',x:0,distance:6,provenance:{environment:'station'}});
+  const coin=g.addEntity({type:'coin',x:0,y:1,distance:6,provenance:p});
+  g.clearObstacles(0,25);
+  assert.ok(!g.entities.includes(near));assert.ok(g.entities.includes(later));assert.ok(g.entities.includes(scenery));assert.ok(g.entities.includes(coin));
+});

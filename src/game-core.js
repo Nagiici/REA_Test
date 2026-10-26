@@ -174,7 +174,7 @@ export class RunnerGame {
     for (const event of this.hoverboard.step(dt, { levelSpeed: s.levelSpeed / 0.1, pausedForFlight: !!s.flight })) {
       if (event.type === 'clearObstacles') {
         const end = s.distance + event.distanceNative * 0.1;
-        this.entities = this.entities.filter(e => ['coin', 'powerup', 'decoration'].includes(e.type) || e.distance + e.depth / 2 < s.distance - 2 || e.distance - e.depth / 2 > end);
+        this.clearObstacles(s.distance - 2, end);
       }
       if (event.type === 'revive') {
         // Browser gap recovery: removed gap geometry supplies a safe floor.
@@ -287,6 +287,21 @@ export class RunnerGame {
 
   get rawMultiplier() { return clamp(Math.floor(this.config.playerLevel), 0, 30); }
   get scoreMultiplier() { return this.rawMultiplier * (this.state.powerups.doubleScore > 0 ? 2 : 1); }
+
+  clearObstacles(start, end) {
+    const hazards = this.entities.filter(e => !['coin', 'powerup', 'decoration'].includes(e.type)
+      && e.distance + e.depth / 2 >= start && e.distance - e.depth / 2 <= end);
+    const removed = new Set(hazards);
+    // Source train groups have one collision proxy and several separate model
+    // entities. Hide their matching instance descendants together, retaining
+    // unrelated scenery, pickups and repeated instances of the same prefab.
+    this.entities = this.entities.filter(e => {
+      if (removed.has(e)) return false;
+      if (e.type !== 'decoration' || !e.provenance?.graph) return true;
+      return !hazards.some(h => h.provenance?.graph && h.provenance.chunkStart === e.provenance.chunkStart
+        && (e.provenance.graph === h.provenance.graph || e.provenance.graph.startsWith(h.provenance.graph + '/')));
+    });
+  }
 
   protectWithBoard() {
     const active = this.hoverboard.state.active;
