@@ -1,0 +1,90 @@
+{
+  "board_default_tex.png": {
+    "bytes": 1185,
+    "sha256": "881ea9107bd5688b2355cc1f84d742fd96e3e292c9002d56b8867da883f2be9d"
+  },
+  "board_jump.animation.json": {
+    "bytes": 54870,
+    "sha256": "f90d1d9128fbf86263dc9eb40cf0c981a432cc25bafee8c5c3d84a28ac8125a6"
+  },
+  "board_landing.animation.json": {
+    "bytes": 87690,
+    "sha256": "e0d743be14d6521fab9a79d67fff97c85dda1a114a6947f7dcbc2d885f018e1e"
+  },
+  "board_left.animation.json": {
+    "bytes": 126939,
+    "sha256": "9348dbb355d8533eee04d9e6f16084803308449b9fc3a78eaf71b4f635257011"
+  },
+  "board_right.animation.json": {
+    "bytes": 136876,
+    "sha256": "85dce693c96832da02bbd53bacd2526ed34ffd8fa334a7fb6c1fb23e1c549c95"
+  },
+  "board_roll.animation.json": {
+    "bytes": 117051,
+    "sha256": "8e56a70b0532f576d8fcea3ab02591730cf88e054fb02d91973bad2e9e4d10c2"
+  },
+  "board_run.animation.json": {
+    "bytes": 142579,
+    "sha256": "4634b0c680611cd22e353df6005754567ff0e336f8d5a3d242394f2dd3961a58"
+  },
+  "board_takeoff.animation.json": {
+    "bytes": 133203,
+    "sha256": "860c8dc2ee4eac19f82ba9caff50f41d961d34ab711bd8100b0f65595f35d8e5"
+  },
+  "flight-parameters.json": {
+    "bytes": 1598178,
+    "sha256": "260f423281785c2b2610f431ccec4fa21cd911044b0806db756be0be2cfdd7f6"
+  },
+  "flight.animation.json": {
+    "bytes": 55684,
+    "sha256": "b25b7b84ac671f04bd2a2342b7374843982c57d1d7caa02b8e735f8df17c9ef9"
+  },
+  "flight_headstart.animation.json": {
+    "bytes": 144334,
+    "sha256": "aa189453dbcf6210ad3bec1a46df19f1c2bfea9a3a591c3728404db6f47775ca"
+  },
+  "flight_left.animation.json": {
+    "bytes": 73013,
+    "sha256": "43be4bc7b7226eb1916ab644c046977cb5029df4c68c288d37e8516ae2dc0ea8"
+  },
+  "flight_right.animation.json": {
+    "bytes": 67830,
+    "sha256": "65ea6ee2cdbd3280005a1d6ce10991c4ab24dc300adc35b0e73ca0c1b7080a4e"
+  },
+  "flight_roll_left.animation.json": {
+    "bytes": 78004,
+    "sha256": "f41480b890b527f1bbcf94c719552979c414fc4e8622aba67ffcf6a3d835fa98"
+  },
+  "flight_roll_right.animation.json": {
+    "bytes": 78197,
+    "sha256": "eb451b8d135f3dee4039afa0ea8ab220752a2a0929a80ca10d2f6c7d4ba3402b"
+  },
+  "flight_variant.animation.json": {
+    "bytes": 78261,
+    "sha256": "afd0640da99da3bbdd4c4b727a082f8cca7a8fb1e3ebcbcbeb4fe373e731379f"
+  },
+  "hoverboard_default.prefab.json": {
+    "bytes": 1558,
+    "sha256": "60919860253dfac646da42807c0d1320e822adf4a029f86cfe0464aab9ded65e"
+  },
+  "hoverboard_default_board_default_base.json": {
+    "bytes": 50728,
+    "sha256": "3ecdc038f5dc10dd27d14c57d2bfcae877a87eaf2438c2099dcc21929e83c78e"
+  },
+  "manifest.patch.json": {
+    "bytes": 44492,
+    "sha256": "021a21e186ca090f27d84fba8422038554888cded243e6d017f8e866a9e082c0"
+  },
+  "props_tex.png": {
+    "bytes": 120225,
+    "sha256": "a2f4fd1d4aebdad2ec333208c73a129ba599e56329ad02d7d34b0b851592409e"
+  },
+  "wearable_jetpack.prefab.json": {
+    "bytes": 4660,
+    "sha256": "b14ca1e5f02f54c00568ce4b629e79b238cffd6851c0d711c00aac0600557d05"
+  },
+  "wearable_jetpack_powerups_jetpack.json": {
+    "bytes": 108782,
+    "sha256": "69904bbbc9df555a038833c87d8e0a33c3e93f7b84288af30c42610f96fccf67"
+  }
+}

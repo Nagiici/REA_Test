@@ -65,6 +65,7 @@ test('all 36 real SpawnPoints select at most one original child and retain the o
     const selections = result.decisions.filter(item => item.type === 'SpawnPoint' && item.selected);
     const pickups = result.entities.filter(item => item.type === 'powerup');
     const empty = result.diagnostics.filter(item => item.kind === 'selected-pickup-effect-unavailable');
+    assert.ok(empty.every(item => item.powerup !== 'jetpack'));
     assert.equal(pickups.length + empty.length, selections.length);
     for (const pickup of pickups) {
       seen.add(pickup.powerup); emitted++;
@@ -79,20 +80,21 @@ test('all 36 real SpawnPoints select at most one original child and retain the o
     }
     unavailable += empty.length;
   }
-  assert.deepEqual([...seen].sort(), ['doubleScore', 'magnet', 'sneakers']);
-  assert.ok(emitted > 30 && unavailable > 10);
+  assert.deepEqual([...seen].sort(), ['doubleScore', 'jetpack', 'magnet', 'sneakers']);
+  assert.ok(emitted > 30);
+  assert.ok(unavailable > 0, 'unimplemented boxes and account items retain their original empty slots');
 });
 
 test('unsupported jetpack retains its source draw and threshold and reset reproduces the sequence', () => {
   const graph = Object.values(library.routes).find(graph => graph.nodes.some(node => node.scripts.some(script => script.class === 'SpawnPoint')));
   let seed;
   for (let candidate = 1; candidate < 200; candidate++) {
-    const generator = new SourceRouteGenerator(library, { seed: candidate });
+    const generator = new SourceRouteGenerator(library, { seed: candidate, enabledPowerups: ['magnet', 'sneakers', 'doubleScore'] });
     const result = generator.compileChunk(graph.id, { startDistance: 300 });
     if (result.diagnostics.some(item => item.powerup === 'jetpack')) { seed = candidate; break; }
   }
   assert.ok(seed);
-  const generator = new SourceRouteGenerator(library, { seed });
+  const generator = new SourceRouteGenerator(library, { seed, enabledPowerups: ['magnet', 'sneakers', 'doubleScore'] });
   const result = generator.compileChunk(graph.id, { startDistance: 300 });
   assert.ok(!result.entities.some(item => item.powerup === 'jetpack'));
   const enabled = new SourceRouteGenerator(library, { seed, enabledPowerups: ['jetpack'] }).compileChunk(graph.id, { startDistance: 300 });

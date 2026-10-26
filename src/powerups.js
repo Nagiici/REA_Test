@@ -3,7 +3,7 @@ import { SNEAKERS } from './sneakers-curve.js';
 // APK 7.07.0 native fallback. Account upgrades/XLua overrides are not applied.
 // Upgrades.cctor field134086; PlayerInfo.GetPowerupDuration indexes by tier.
 export const POWERUP_SECONDS = Object.freeze([10, 11.5, 13.4, 15.8, 19, 24, 30]);
-export const POWERUP_NAMES = Object.freeze({ magnet: '金币磁铁', sneakers: '超级跑鞋', doubleScore: '双倍积分' });
+export const POWERUP_NAMES = Object.freeze({ magnet: '金币磁铁', sneakers: '超级跑鞋', doubleScore: '双倍积分', jetpack: '喷气背包' });
 export { SNEAKERS };
 
 export function curveValue(keys, time) {

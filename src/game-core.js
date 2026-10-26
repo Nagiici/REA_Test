@@ -1,3 +1,6 @@
+import { Jetpack } from './jetpack.js';
+import { makeFlightCoins } from './flight-coins.js';
+import { Hoverboard, HOVERBOARD_BROWSER_ADAPTER } from './hoverboard.js';
 import { DEFAULT_CONFIG } from './config.js';
 import { POWERUP_SECONDS, POWERUP_NAMES, SNEAKERS, curveValue, touchesPowerup } from './powerups.js';
 
@@ -79,6 +82,11 @@ export class RunnerGame {
         grounded: true, floor: 0, laneFrom: 0, laneElapsed: 0, laneDuration: this.config.laneChangeSeconds },
       collision: null,
     };
+    this.jetpack = new Jetpack({ tier: clamp(Math.floor(this.config.powerupTier), 0, 6) });
+    this.hoverboard = new Hoverboard(HOVERBOARD_BROWSER_ADAPTER);
+    this.state.levelSpeed = this.config.initialSpeed;
+    this.state.flight = null;
+    this.state.board = this.hoverboard.state;
     this.ensureCourse();
   }
 
@@ -97,12 +105,18 @@ export class RunnerGame {
   action(action) {
     if (this.state.phase !== 'running') return false;
     const p = this.state.player;
+    if (action === 'board') {
+      const activated = this.hoverboard.activate({ flying: !!this.state.flight });
+      if (activated) this.events.push({ type: 'board-start' });
+      return activated;
+    }
+    if (this.state.flight && !['left', 'right'].includes(action)) return false;
     if (action === 'left' || action === 'right') {
       const next = clamp(p.lane + (action === 'left' ? -1 : 1), 0, 2);
       if (next === p.lane) return false;
       p.laneFrom = p.x;
       p.laneElapsed = 0;
-      p.laneDuration = Math.abs((next - 1) - p.x / this.config.laneSpacing) * this.config.laneChangeSeconds;
+      p.laneDuration = Math.abs((next - 1) - p.x / this.config.laneSpacing) * (this.state.flight ? 6 / this.state.speed : this.config.laneChangeSeconds);
       p.lane = next;
       this.events.push({ type: 'lane', lane: next });
       return true;
@@ -143,11 +157,32 @@ export class RunnerGame {
     const s = this.state, p = s.player, c = this.config;
     const previousDistance = s.distance;
     for (const type of Object.keys(s.powerups)) {
+      if (type === 'jetpack' || type === 'sneakers' && s.flight) continue;
       s.powerups[type] = Math.max(0, s.powerups[type] - dt);
       if (s.powerups[type] <= 1e-8) { delete s.powerups[type]; this.events.push({ type: 'powerup-end', powerup: type }); }
     }
     s.elapsed += dt;
-    s.speed = Math.min(c.maximumSpeed, s.speed + c.acceleration * dt);
+    s.levelSpeed = Math.min(c.maximumSpeed, s.levelSpeed + c.acceleration * dt);
+    if (s.flight) {
+      const flight = this.jetpack.step(dt, { distance: previousDistance });
+      if (!flight.active) {
+        s.flight = null; delete s.powerups.jetpack; p.velocityY = 0;
+        this.events.push({ type: 'powerup-end', powerup: 'jetpack' });
+      } else { s.flight = flight; s.powerups.jetpack = Math.max(0, flight.timeLeft); }
+    }
+    s.speed = s.flight ? s.flight.speed : s.levelSpeed;
+    for (const event of this.hoverboard.step(dt, { levelSpeed: s.levelSpeed / 0.1, pausedForFlight: !!s.flight })) {
+      if (event.type === 'clearObstacles') {
+        const end = s.distance + event.distanceNative * 0.1;
+        this.entities = this.entities.filter(e => ['coin', 'powerup', 'decoration'].includes(e.type) || e.distance + e.depth / 2 < s.distance - 2 || e.distance - e.depth / 2 > end);
+      }
+      if (event.type === 'revive') {
+        // Browser gap recovery: removed gap geometry supplies a safe floor.
+        p.y = Math.max(0, p.y); p.velocityY = Math.sqrt(2 * c.gravity * event.jumpHeightNative * 0.1);
+        p.grounded = false; p.rollRemaining = 0; p.sneakersJump = null;
+      }
+      this.events.push({ ...event, type: `board-${event.type}` });
+    }
     s.distance += s.speed * dt;
     for (const entity of this.entities) {
       entity.previousDistance = entity.distance;
@@ -159,7 +194,9 @@ export class RunnerGame {
     p.x = p.laneFrom + ((p.lane - 1) * c.laneSpacing - p.laneFrom) * blend;
     p.rollRemaining = Math.max(0, p.rollRemaining - dt);
     const previousY = p.y;
-    if (p.sneakersJump) {
+    if (s.flight) {
+      p.y = s.flight.y; p.velocityY = 0; p.grounded = false;
+    } else if (p.sneakersJump) {
       const jump = p.sneakersJump, progress = (s.distance - jump.startDistance) / jump.length;
       p.y = jump.startY + curveValue(SNEAKERS.curve, progress) * SNEAKERS.height;
       p.velocityY = 0;
@@ -169,7 +206,7 @@ export class RunnerGame {
       p.y += p.velocityY * dt;
     }
     const floor = this.surfaceHeight(s.distance, p.x, previousY);
-    if (p.y <= floor && p.velocityY <= 0) {
+    if (!s.flight && p.y <= floor && p.velocityY <= 0) {
       if (!p.grounded) this.events.push({ type: 'land' });
       p.y = floor;
       p.velocityY = 0;
@@ -188,10 +225,12 @@ export class RunnerGame {
       const x = e.x ?? (e.lane - 1) * c.laneSpacing;
       const longitudinal = e.distance - s.distance;
       if (e.type === 'powerup') {
+        if (s.flight) continue;
         if (touchesPowerup(e, p, s.distance, previousDistance) && this.activatePowerup(e.powerup)) e.collected = true;
         continue;
       }
       if (e.type === 'coin') {
+        if (s.flight?.takingOff) continue;
         this.attractCoin(e);
         if (e.attraction) {
           const flight = e.attraction;
@@ -204,12 +243,13 @@ export class RunnerGame {
           if (t >= 1) this.collectCoin(e);
           continue;
         }
-        const center = p.y + (p.rollRemaining > 0 ? 0.4 : 1);
+        const center = p.y + (s.flight ? 0.5 : p.rollRemaining > 0 ? 0.4 : 1);
         if (Math.abs(longitudinal) < 0.72 && Math.abs(x - p.x) < 0.7 && Math.abs((e.y ?? 1.1) - center) < 1) {
           this.collectCoin(e);
         }
         continue;
       }
+      if (s.flight) continue;
       if (e.type === 'ramp' || e.type === 'decoration' || e.type === 'gap') continue;
       const halfDepth = e.depth / 2 + c.playerRadius;
       const oldRelative = (e.previousDistance ?? e.distance) - previousDistance;
@@ -229,13 +269,14 @@ export class RunnerGame {
         // the front contact while grounded on the matching supporting ramp;
         // the same train remains solid for a runner approaching from the ground.
         if (e.type === 'train' && this.isCrossingRampSeam(e)) continue;
+        if (this.protectWithBoard()) break;
         s.phase = 'gameover';
         s.collision = { id: e.id, type: e.type, distance: s.distance };
         this.events.push({ type: 'crash', obstacle: e.type });
         break;
       }
     }
-    if (p.y < -6 && s.phase === 'running') {
+    if (p.y < -6 && s.phase === 'running' && !s.flight && !this.protectWithBoard()) {
       s.phase = 'gameover'; s.collision = { type: 'gap', distance: s.distance };
       this.events.push({ type: 'crash', obstacle: 'gap' });
     }
@@ -247,13 +288,31 @@ export class RunnerGame {
   get rawMultiplier() { return clamp(Math.floor(this.config.playerLevel), 0, 30); }
   get scoreMultiplier() { return this.rawMultiplier * (this.state.powerups.doubleScore > 0 ? 2 : 1); }
 
+  protectWithBoard() {
+    const active = this.hoverboard.state.active;
+    const protectedHit = this.hoverboard.hit({ speedNormalized: this.state.speed / 11, flying: !!this.state.flight });
+    if (protectedHit && active) this.events.push({ type: 'board-hit' });
+    return protectedHit;
+  }
+
   activatePowerup(type) {
-    if (!(type in POWERUP_NAMES)) return false;
+    if (!(type in POWERUP_NAMES) || type === 'jetpack' && this.state.flight) return false;
     // Collection.Add resets an existing DoubleScore before TriggerPowerup's
     // +30*multiplier reward, then Begin enables the new double-score effect.
     if (type === 'doubleScore') delete this.state.powerups.doubleScore;
     this.state.baseScore += 30 * this.scoreMultiplier;
     this.state.powerups[type] = POWERUP_SECONDS[clamp(Math.floor(this.config.powerupTier), 0, POWERUP_SECONDS.length - 1)];
+    if (type === 'jetpack') {
+      const s = this.state, p = s.player;
+      let flight = this.jetpack.begin({ distance: s.distance, y: p.y, levelSpeed: s.levelSpeed });
+      const target = this.routeGenerator?.scheduleJetpackLanding?.(flight.targetZ, this.nextSection, s.levelSpeed * Math.sqrt(2 * 9.5 / this.config.gravity) + this.config.playerRadius + s.levelSpeed * this.config.fixedStep * 2);
+      if (target != null) flight = this.jetpack.begin({ distance: s.distance, y: p.y, levelSpeed: s.levelSpeed, minimumTargetZ: target });
+      s.flight = flight; s.speed = flight.speed; s.powerups.jetpack = flight.timeLeft;
+      p.sneakersJump = null; p.rollRemaining = 0; p.grounded = false; p.velocityY = 0;
+      this.hoverboard.state.flying = true;
+      const start = flight.coinStartDistance;
+      for (const coin of makeFlightCoins({ start, length: Math.max(0, flight.coinLength), height: 9.5, random: this.random }).coins) this.addEntity(coin);
+    }
     this.state.score = this.state.baseScore + this.state.coins * this.rawMultiplier * 2;
     this.events.push({ type: 'powerup', powerup: type, duration: this.state.powerups[type] });
     return true;
@@ -272,7 +331,7 @@ export class RunnerGame {
     const dy = y - (p.y - 3.85 * axisY + 0.15);
     const dz = coin.distance - (s.distance + 1.925 + 0.3 * axisY);
     const along = clamp(dy * axisY + dz * axisZ, -4.55, 4.55);
-    const sneakers = s.powerups.sneakers && Math.hypot(x - p.x, dy - along * axisY, dz - along * axisZ) <= 0.2;
+    const sneakers = !s.flight && s.powerups.sneakers && Math.hypot(x - p.x, dy - along * axisY, dz - along * axisZ) <= 0.2;
     if (!magnet && !sneakers) return;
     coin.attraction = { x, y, distance: coin.distance, started: s.elapsed,
       duration: Math.max(this.config.fixedStep, distance / ((magnet ? 15 : 20) * s.speed / 11)) };

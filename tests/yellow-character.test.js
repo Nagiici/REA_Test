@@ -22,7 +22,7 @@ function withoutTextures() {
 async function load() { return characterFromGLB(withoutTextures(), { name: '黄色小怪兽', source: 'test' }); }
 function bounds(character) { character.object.updateMatrixWorld(true); return new THREE.Box3().setFromObject(character.object, true); }
 
-test('yellow player contains 26 recovered bone mappings and the three original clip sources', () => {
+test('yellow player contains 26 recovered bone mappings and the original locomotion and equipment clip sources', () => {
   assert.equal(document.skins[0].joints.length, 26);
   assert.equal(new Set(report.bones.map(b => b.sourcePath)).size, 26);
   assert.ok(report.bytes < 7_000_000);
@@ -32,7 +32,7 @@ test('yellow player contains 26 recovered bone mappings and the three original c
     assert.deepEqual(animation.extras.source, source.source);
     assert.equal(animation.extras.sourceDuration, source.duration);
   }
-  assert.deepEqual(document.animations.map(a => a.name).sort(), ['jump', 'roll', 'run']);
+  assert.deepEqual(document.animations.map(a => a.name).sort(), ['board_jump', 'board_landing', 'board_roll', 'board_run', 'board_takeoff', 'flight', 'jump', 'roll', 'run']);
 });
 
 test('yellow GLB loads as a skinned, grounded player with normalized four-joint weights', async () => {
@@ -122,4 +122,19 @@ test('rapid roll inputs keep animating beyond the first clip and recover after i
   assert.ok(changes>100, `Only ${changes} moving frames during sustained rolling`);
   assert.equal(game.state.player.rollRemaining,0);
   assert.ok(character.mixer._actions.find(a=>a.getClip().name==='run').isRunning());
+});
+
+test('equipment motions loop independently and the source board attachment follows its own tracks', async () => {
+  const character = await load(), attachment = character.native.getObjectByName('SourceBoardAttachment');
+  assert.ok(attachment);
+  for (const name of ['flight','board_run','board_roll']) {
+    character.setAnimation(name, name==='board_roll' ? .7 : undefined);
+    character.mixer.update(.2); const first = attachment.position.clone();
+    character.mixer.update(.23);
+    const action=character.mixer._actions.find(a=>a.getClip().name===name);
+    assert.equal(action.loop,THREE.LoopRepeat); assert.ok(action.isRunning());
+    assert.ok(Number.isFinite(bounds(character).max.y));
+    if (name==='board_run') assert.ok(first.distanceTo(attachment.position)>.001);
+    character.native.traverse(b=>{if(b.isBone)assert.ok(b.scale.distanceTo(new THREE.Vector3(1,1,1))<1e-6);});
+  }
 });

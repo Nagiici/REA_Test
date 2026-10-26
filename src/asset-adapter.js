@@ -125,7 +125,7 @@ function characterFromUnity(meshes, rig, texture, animations) {
     const next = actions[name];
     if (!next) return;
     next.reset();
-    if (name === 'run' || name === 'roll') {
+    if (['run', 'roll', 'flight', 'board_run', 'board_roll'].includes(name)) {
       next.setLoop(THREE.LoopRepeat); next.clampWhenFinished = false;
       if (name === 'roll') next.setDuration(duration || clips[name].duration);
       else next.timeScale = 1;
@@ -156,7 +156,7 @@ function sourceMaterials(data, records, textures) {
   });
 }
 
-function prefabFromUnity(data, meshData, textures) {
+function prefabFromUnity(data, meshData, textures, manifest) {
   const native = new THREE.Group(), byId = new Map();
   for (const source of data.nodes) {
     const node = new THREE.Group(); node.name = source.name;
@@ -165,6 +165,7 @@ function prefabFromUnity(data, meshData, textures) {
     if (source.mesh && source.rendererEnabled !== false && meshData[source.mesh]) {
       const geometry = geometryFromUnity(meshData[source.mesh]);
       const mesh = new THREE.Mesh(geometry, sourceMaterials(meshData[source.mesh], source.materials ?? [], textures));
+      for (const index of manifest.meshes[source.mesh]?.renderHints?.skipSubmeshes ?? []) if (mesh.material[index]) mesh.material[index].visible = false;
       mesh.castShadow = true; mesh.receiveShadow = true; node.add(mesh);
     }
     node.userData.sourceNodeId = source.id; byId.set(source.id, node);
@@ -228,7 +229,7 @@ export async function loadRecoveredPack(base = '/assets/recovered/') {
     mesh.scale.set(0.1, 0.1, -0.1); wrapper.add(mesh);
     props[name] = wrapper;
   }
-  const prefabs = Object.fromEntries(Object.entries(prefabData).map(([name, data]) => [name, prefabFromUnity(data, meshData, textures)]));
+  const prefabs = Object.fromEntries(Object.entries(prefabData).map(([name, data]) => [name, prefabFromUnity(data, meshData, textures, manifest)]));
   return { manifest, character, props, prefabs, prefabData, textures, meshData, routeLibrary, environmentBindings,
     cloneProp: name => props[name]?.clone(true), clonePrefab: name => prefabs[name]?.clone(true) };
 }
@@ -252,14 +253,15 @@ export async function characterFromGLB(buffer, { name = '自定义角色', sourc
   for (const clip of gltf.animations) actions.set(clip.name, mixer.clipAction(clip));
   let playing = null;
   function setAnimation(name, duration) {
-    const match = [...actions.keys()].find(key => key.toLowerCase().includes(name)) ?? [...actions.keys()][0];
+    const fallback = name.startsWith('board_') ? name.slice(6) : name === 'flight' ? 'jump' : name;
+    const match = actions.has(name) ? name : actions.has(fallback) ? fallback : [...actions.keys()].find(key => key.toLowerCase().includes(fallback)) ?? [...actions.keys()][0];
     if (!match || playing === match) return;
     const action = actions.get(match); action.reset();
     // The simulation owns rollRemaining and may extend it on repeated input.
     // Keep rolling until that state ends; a clamped one-shot would freeze.
-    if (name === 'run' || name === 'roll') {
+    if (['run', 'roll', 'flight', 'board_run', 'board_roll'].includes(name)) {
       action.setLoop(THREE.LoopRepeat); action.clampWhenFinished = false;
-      if (name === 'roll') action.setDuration(duration || action.getClip().duration);
+      if (name.endsWith('roll')) action.setDuration(duration || action.getClip().duration);
       else action.timeScale = 1;
     }
     else { action.setLoop(THREE.LoopOnce, 1); action.clampWhenFinished = true; action.setDuration(duration || action.getClip().duration); }

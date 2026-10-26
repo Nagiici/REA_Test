@@ -2,8 +2,8 @@
   "input": "outputs/yellow-character-47e54de8/yellow-character-full-body.glb",
   "output": "web/public/assets/character/yellow-runner.glb",
   "sourceBytes": 58272900,
-  "bytes": 6233396,
-  "sha256": "41591f5b5cf47143c93d45cd6416a8802abe2cc4c1e856fbaaa2af0b3dcb711c",
+  "bytes": 6450496,
+  "sha256": "fd5c4d37aab85879990c457af12304d6d3540c7ee36b9a9a6a6e8d6f17b15a70",
   "bones": [
     {
       "name": "Root_jnt",
@@ -299,12 +299,102 @@
         -0.01224752810850227,
         0.47482638595031657
       ]
+    },
+    {
+      "name": "flight",
+      "source": {
+        "asset": "e4c3ca70f6c5abf4bb75b6eadadefe49",
+        "pathId": "1"
+      },
+      "duration": 0.47999998927116394,
+      "frames": 59,
+      "mappedBones": 26,
+      "maximumHeight": 0.7507162796601593,
+      "groundCorrection": [
+        -0.09911003893109793,
+        -0.05145243815180911
+      ]
+    },
+    {
+      "name": "board_run",
+      "source": {
+        "asset": "e4b92f6a0ec194245842d09e40b10939",
+        "pathId": "7"
+      },
+      "duration": 1.0416666269302368,
+      "frames": 126,
+      "mappedBones": 26,
+      "maximumHeight": 1.4237197773490622,
+      "groundCorrection": [
+        -0.1062290357720288,
+        0.01793967859893797
+      ]
+    },
+    {
+      "name": "board_jump",
+      "source": {
+        "asset": "e4b92f6a0ec194245842d09e40b10939",
+        "pathId": "8"
+      },
+      "duration": 0.08333396911621094,
+      "frames": 12,
+      "mappedBones": 26,
+      "maximumHeight": 1.4076625050691667,
+      "groundCorrection": [
+        0,
+        0
+      ]
+    },
+    {
+      "name": "board_roll",
+      "source": {
+        "asset": "e4b92f6a0ec194245842d09e40b10939",
+        "pathId": "11"
+      },
+      "duration": 0.5416660308837891,
+      "frames": 66,
+      "mappedBones": 26,
+      "maximumHeight": 1.231753944026854,
+      "groundCorrection": [
+        -0.08402496400934689,
+        0.08559403536165067
+      ]
+    },
+    {
+      "name": "board_landing",
+      "source": {
+        "asset": "e4b92f6a0ec194245842d09e40b10939",
+        "pathId": "10"
+      },
+      "duration": 0.33333396911621094,
+      "frames": 42,
+      "mappedBones": 26,
+      "maximumHeight": 1.4118218138763425,
+      "groundCorrection": [
+        -0.07682076076623867,
+        -0.0511927206184577
+      ]
+    },
+    {
+      "name": "board_takeoff",
+      "source": {
+        "asset": "e4b92f6a0ec194245842d09e40b10939",
+        "pathId": "24"
+      },
+      "duration": 0.45833587646484375,
+      "frames": 57,
+      "mappedBones": 26,
+      "maximumHeight": 1.4206204732727594,
+      "groundCorrection": [
+        -0.2840024023096275,
+        0.09459644082214946
+      ]
     }
   ],
   "provenance": {
     "sourceTask": "47e54de8a9174127b6f711713b71cf1a",
     "sourceSha256": "182b1df7e2cb1b4fbe46754e33713c64038cf11125f3bd75879d1526c91f3141",
-    "animationSource": "User-provided Subway Surfers 7.07.0 APK, recovered Jake rig and run/jump/roll curves",
+    "animationSource": "User-provided Subway Surfers 7.07.0 APK, recovered Jake rig and run/jump/roll/jetpack/hoverboard curves",
     "adaptations": [
       "26-bone skeleton proportions fitted to full-body yellow model",
       "New skin weights for yellow mesh",

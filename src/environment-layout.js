@@ -148,6 +148,12 @@ export class EnvironmentRouteGenerator {
     return this.decorate(this.source.nextChunk(context), context);
   }
 
+  scheduleJetpackLanding(requestedTarget, leadingEdge, landingRunout = 0) {
+    return this.source.scheduleJetpackLanding(requestedTarget, leadingEdge, landingRunout);
+  }
+
+  get pendingJetpackLanding() { return this.source.pendingJetpackLanding; }
+
   decorate(result, context) {
     const fields = result.environmentHints.chunkFields;
     const kind = this.selector.next(fields, context.startDistance / this.unitScale, result.length / this.unitScale);

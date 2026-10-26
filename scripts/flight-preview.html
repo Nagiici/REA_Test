@@ -1,0 +1,16 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>飞行与滑板回归</title>
+<style>body{margin:0;background:#173e3b;overflow:hidden}iframe{display:block;border:0;width:100%;height:100dvh}nav{position:fixed;z-index:10;bottom:60px;left:24px;display:flex;gap:8px}button{border:0;border-radius:7px;padding:10px 14px;background:#f1f4d9;color:#173e3b}#qa-status{position:fixed;bottom:110px;left:24px;color:white;font:12px system-ui}</style>
+<iframe src="/" title="游戏验证"></iframe><nav><button id="flight">飞行预览</button><button id="board">滑板预览</button><button id="roll">连续翻滚</button><button id="hit">撞击保护</button><button id="advance">推进半秒</button><button id="land">飞行落地</button></nav><output id="qa-status">加载中</output>
+<script type="module">
+const frame=document.querySelector('iframe'),status=document.querySelector('#qa-status');let runner, sourceGenerator;
+const wait=setInterval(()=>{if(frame.contentWindow.__runner?.ready){runner=frame.contentWindow.__runner;sourceGenerator=runner.game.routeGenerator;const style=frame.contentDocument.createElement('style');style.textContent='#menu{display:none}';frame.contentDocument.head.append(style);clearInterval(wait);report();}},100);
+function report(){const s=runner.game.state;status.textContent=`本地回归 · ${s.phase} · 高度 ${s.player.y.toFixed(2)} · 飞行 ${!!s.flight} · 滑板 ${s.board.active} · 库存 ${s.board.inventory} · 金币 ${s.coins} · 错误 ${runner.errors.length}`;}
+function step(seconds){const g=runner.game;g.state.phase='running';for(let i=0;i<seconds*120;i++)g.advance(1/120);g.state.phase='paused';report();}
+function reset(){const g=runner.game;g.routeGenerator=sourceGenerator;g.reset();g.routeGenerator=null;g.entities=g.entities.filter(e=>e.type==='decoration');g.nextSection=1e9;g.start();return g;}
+document.querySelector('#flight').onclick=()=>{if(!runner)return;const g=reset();g.activatePowerup('jetpack');step(2.3);runner.character.setAnimation('flight');runner.character.mixer.update(.22);};
+document.querySelector('#board').onclick=()=>{if(!runner)return;const g=reset();g.action('board');step(1);runner.character.setAnimation('board_run');runner.character.mixer.update(.32);};
+document.querySelector('#advance').onclick=()=>step(.5);
+document.querySelector('#land').onclick=()=>step(9);
+document.querySelector('#hit').onclick=()=>{const g=reset();g.action('board');g.addEntity({type:'barrier',lane:1,distance:2});g.addEntity({type:'train',lane:1,distance:15});step(.4);};
+document.querySelector('#roll').onclick=()=>{const g=reset();g.action('board');let count=0;const timer=setInterval(()=>{g.action('roll');if(++count===24){clearInterval(timer);setTimeout(()=>{g.pause();report();},900);}},120);};
+</script></html>

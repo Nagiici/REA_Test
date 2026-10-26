@@ -5,6 +5,7 @@ import { createEntityVisual } from './entity-visuals.js';
 import { SourceRouteGenerator } from './route-generator.js';
 import { EnvironmentRouteGenerator } from './environment-layout.js';
 import { POWERUP_NAMES, POWERUP_SECONDS } from './powerups.js';
+import { JETPACK_SECONDS } from './jetpack.js';
 import './style.css';
 
 const $ = id => document.getElementById(id);
@@ -85,6 +86,23 @@ function updateEntities(time) {
 function installCharacter(next) {
   if (character) scene.remove(character.object);
   character = next; scene.add(character.object);
+  equipment = null;
+  if (pack) {
+    const boardParent = character.native.getObjectByName('SourceBoardAttachment');
+    const spine = character.native.getObjectByName('LowerSpine_jnt');
+    equipment = { board: pack.clonePrefab('hoverboard_default'), jetpack: pack.clonePrefab('wearable_jetpack') };
+    if (boardParent) { equipment.board.children[0].scale.setScalar(.08); boardParent.add(equipment.board); }
+    else { equipment.board.position.y = .05; character.object.add(equipment.board); }
+    if (spine) {
+      // Equipment fit for the broader replacement body; source descendant TRS is retained.
+      equipment.jetpack.children[0].scale.setScalar(.17);
+      const attachment = pack.manifest.equipmentAttachments.jetpack;
+      const rest = new THREE.Matrix4().set(...attachment.rigRestWorldMatrix);
+      rest.decompose(new THREE.Vector3(), equipment.jetpack.quaternion, new THREE.Vector3());
+      equipment.jetpack.position.set(0, -.13, -.12); spine.add(equipment.jetpack);
+    } else { equipment.jetpack.position.set(0, 1, .4); character.object.add(equipment.jetpack); }
+    equipment.board.visible = equipment.jetpack.visible = false;
+  }
   $('asset-label').textContent = next.name;
   $('asset-status').classList.add('ready');
   window.__runner.character = character;
@@ -108,6 +126,7 @@ Promise.all([loadRecoveredPack(), loadYellowCharacter()]).then(([result, yellowC
   $('start-label').textContent = '资源未就绪';
 });
 
+let boardPose = null, equipment = null;
 let toastTimer;
 function toast(message) {
   $('toast').textContent = message; $('toast').classList.add('show');
@@ -143,7 +162,8 @@ $('sound').addEventListener('click', async () => {
 });
 $('sound').style.opacity = '.55';
 
-const keyActions = { ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right', ArrowUp: 'jump', KeyW: 'jump', Space: 'jump', ArrowDown: 'roll', KeyS: 'roll' };
+$('board').addEventListener('click', () => { game.action('board'); canvas.focus(); });
+const keyActions = { KeyE: 'board', ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right', ArrowUp: 'jump', KeyW: 'jump', Space: 'jump', ArrowDown: 'roll', KeyS: 'roll' };
 window.addEventListener('keydown', event => {
   if (event.target instanceof HTMLInputElement) return;
   if (keyActions[event.code]) {
@@ -154,12 +174,15 @@ window.addEventListener('keydown', event => {
   } else if ((event.code === 'KeyP' || event.code === 'Escape') && !event.repeat) game.pause();
   else if (event.code === 'Enter' && !event.repeat) start();
 });
-let pointerStart = null;
+let pointerStart = null, lastTap = 0;
 canvas.addEventListener('pointerdown', event => { pointerStart = { x: event.clientX, y: event.clientY, id: event.pointerId }; canvas.setPointerCapture(event.pointerId); });
 canvas.addEventListener('pointerup', event => {
   if (!pointerStart || pointerStart.id !== event.pointerId) return;
   const dx = event.clientX - pointerStart.x, dy = event.clientY - pointerStart.y; pointerStart = null;
-  if (Math.max(Math.abs(dx), Math.abs(dy)) < 22) return;
+  if (Math.max(Math.abs(dx), Math.abs(dy)) < 22) {
+    const now = performance.now(); if (now - lastTap < 320) { game.action('board'); lastTap = 0; } else lastTap = now; return;
+  }
+  lastTap = 0;
   game.action(Math.abs(dx) > Math.abs(dy) ? dx < 0 ? 'left' : 'right' : dy < 0 ? 'jump' : 'roll');
 });
 canvas.addEventListener('pointercancel', () => { pointerStart = null; });
@@ -222,16 +245,22 @@ function frame(now) {
   $('multiplier').textContent = `×${game.scoreMultiplier}`;
   for (const [type, name] of Object.entries(POWERUP_NAMES)) {
     const element = $(`effect-${type}`), remaining = s.powerups[type] ?? 0;
-    element.hidden = remaining <= 0;
+    element.hidden = remaining <= 0 && !(type === 'jetpack' && s.flight);
     element.querySelector('span').textContent = `${name} · ${Math.ceil(remaining)}秒`;
-    element.querySelector('progress').value = remaining / POWERUP_SECONDS[game.config.powerupTier];
+    element.querySelector('progress').value = remaining / (type === 'jetpack' ? s.flight?.initialTimeLeft || JETPACK_SECONDS[game.config.powerupTier] : POWERUP_SECONDS[game.config.powerupTier]);
   }
+  const board = game.hoverboard.state;
+  $('board').disabled = s.phase !== 'running' || !game.hoverboard.canActivate;
+  $('board').textContent = board.active ? `滑板 ${Math.ceil(board.timeLeft)}秒${s.flight ? ' · 暂停' : ''}` : board.cooldownBlocked ? '滑板冷却中' : `滑板 ×${board.inventory} · E`;
   $('speed-line').style.width = `${(s.speed - game.config.initialSpeed) / (game.config.maximumSpeed - game.config.initialSpeed) * 100}%`;
   for (const event of game.drainEvents()) {
+    if (event.type === 'board-start') { boardPose = { name: 'board_takeoff', until: s.elapsed + .458336 }; toast('滑板保护已开启'); }
+    if (event.type === 'land' && game.hoverboard.visible) boardPose = { name: 'board_landing', until: s.elapsed + .333334 };
+    if (event.type === 'board-hit') { boardPose = null; toast('滑板挡住了撞击'); sound(160, .2, 'triangle'); }
     if (event.type === 'coin') sound(980 + s.coins % 4 * 85, 0.055);
     if (event.type === 'jump') sound(420, 0.09, 'triangle');
     if (event.type === 'crash') sound(90, 0.25, 'sawtooth', 0.03);
-    if (event.type === 'powerup') { sound(740, 0.18, 'triangle'); toast(`${POWERUP_NAMES[event.powerup]} · ${event.duration}秒`); }
+    if (event.type === 'powerup') { sound(740, 0.18, 'triangle'); toast(`${POWERUP_NAMES[event.powerup]} · ${Math.ceil(event.duration)}秒`); }
   }
   if (loaded) {
     updateEntities(time);
@@ -240,15 +269,19 @@ function frame(now) {
     character.object.position.set(p.x, p.y, 0);
     const lean = Math.max(-0.13, Math.min(0.13, ((p.lane - 1) * game.config.laneSpacing - p.x) * -0.16));
     character.object.rotation.z = THREE.MathUtils.damp(character.object.rotation.z, lean, 12, dt);
-    character.setAnimation(p.rollRemaining > 0 ? 'roll' : !p.grounded ? 'jump' : 'run', p.rollRemaining > 0 ? game.config.rollSeconds : 2 * Math.sqrt(2 * (s.powerups.sneakers ? 4 : game.config.jumpHeight) / game.config.gravity));
+    const base = p.rollRemaining > 0 ? 'roll' : !p.grounded ? 'jump' : 'run';
+    const animation = s.flight ? 'flight' : game.hoverboard.visible ? (base === 'run' && boardPose?.until > s.elapsed ? boardPose.name : `board_${base}`) : base;
+    const duration = animation === 'board_takeoff' ? .458336 : animation === 'board_landing' ? .333334 : p.rollRemaining > 0 ? game.config.rollSeconds : base === 'jump' ? 2 * Math.sqrt(2 * (s.powerups.sneakers ? 4 : game.config.jumpHeight) / game.config.gravity) : undefined;
+    character.setAnimation(animation, duration);
+    if (equipment) { equipment.board.visible = game.hoverboard.visible; equipment.jetpack.visible = !!s.flight; }
     if (s.phase === 'running' || s.phase === 'ready') character.mixer.update(dt * (s.phase === 'ready' ? 0.5 : 1));
   }
   const menuView = s.phase === 'ready' && innerWidth > 800;
   const targetX = menuView ? -3.2 : p.x * 0.12;
   camera.position.x = THREE.MathUtils.damp(camera.position.x, targetX, 3, dt);
-  camera.position.y = THREE.MathUtils.damp(camera.position.y || 5.3, menuView ? 4.5 : 5.7 + Math.min(p.y, 2) * 0.17, 4, dt);
+  camera.position.y = THREE.MathUtils.damp(camera.position.y || 5.3, menuView ? 4.5 : 5.7 + Math.max(0, p.y - 2) + Math.min(p.y, 2) * 0.17, 4, dt);
   camera.position.z = menuView ? 8.6 : innerWidth < 700 ? 8.7 : 9.4;
-  lookTarget.set(menuView ? -3.2 : p.x * 0.12, 1.45 + p.y * 0.1, -8);
+  lookTarget.set(menuView ? -3.2 : p.x * 0.12, 1.45 + Math.max(0, p.y - 2) + Math.min(p.y, 2) * 0.1, -8);
   camera.lookAt(lookTarget);
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
