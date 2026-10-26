@@ -183,6 +183,16 @@ export async function loadRecoveredPack(base = '/assets/recovered/') {
   const rig = await fetchJson(base + manifest.rig.file);
   const animations = Object.fromEntries(await Promise.all(Object.entries(manifest.animations).map(async ([name, info]) => [name, await fetchJson(base + info.file)])));
   const prefabData = Object.fromEntries(await Promise.all(Object.entries(manifest.prefabs ?? {}).map(async ([name, info]) => [name, await fetchJson(base + info.file)])));
+  const routeLibraryPath = typeof manifest.routeLibrary === 'string' ? manifest.routeLibrary : manifest.routeLibrary?.file;
+  const routeLibrary = routeLibraryPath ? await fetchJson(base + routeLibraryPath) : null;
+  if (routeLibrary?.modelBindingsFile) {
+    routeLibrary.modelBindings = await fetchJson(base + routeLibrary.modelBindingsFile);
+    for (const binding of Object.values(routeLibrary.modelBindings.byDefinitionRef ?? {})) {
+      if (!prefabData[binding.prefabKey]) throw new Error(`关卡模型缺失：${binding.prefabKey}`);
+    }
+  }
+  const environmentPath = manifest.environmentBindings ?? routeLibrary?.environmentBindingsFile;
+  const environmentBindings = environmentPath ? await fetchJson(base + (typeof environmentPath === 'string' ? environmentPath : environmentPath.file)) : null;
   const character = characterFromUnity({ jake_Mesh: meshData.jake_Mesh, jake_head: meshData.jake_head }, rig, textures.jake_tex_low, animations);
   const props = {};
   for (const [name, data] of Object.entries(meshData)) {
@@ -210,7 +220,8 @@ export async function loadRecoveredPack(base = '/assets/recovered/') {
     props[name] = wrapper;
   }
   const prefabs = Object.fromEntries(Object.entries(prefabData).map(([name, data]) => [name, prefabFromUnity(data, meshData, textures)]));
-  return { manifest, character, props, prefabs, prefabData, textures, meshData, cloneProp: name => props[name]?.clone(true), clonePrefab: name => prefabs[name]?.clone(true) };
+  return { manifest, character, props, prefabs, prefabData, textures, meshData, routeLibrary, environmentBindings,
+    cloneProp: name => props[name]?.clone(true), clonePrefab: name => prefabs[name]?.clone(true) };
 }
 
 export async function characterFromGLB(buffer) {

@@ -2,6 +2,40 @@ import { DEFAULT_CONFIG } from './config.js';
 
 const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 
+/** The vertical line through a runner intersects the original rotated collider. */
+export function sourceVerticalBounds(entity, x, distance) {
+  const shape = entity.sourceShape;
+  if (!shape) return { bottom: entity.bottom ?? 0, top: entity.height };
+  const origin = shape.rows.map(row => row[0] * (x - entity.x) + row[2] * (distance - entity.distance) + row[3]);
+  const direction = shape.rows.map(row => row[1]);
+  if (shape.type === 'box') {
+    let bottom = -Infinity, top = Infinity;
+    for (let i = 0; i < 3; i++) {
+      if (Math.abs(direction[i]) < 1e-12) { if (Math.abs(origin[i]) > shape.halfSize[i] + 1e-8) return null; continue; }
+      const a = (-shape.halfSize[i] - origin[i]) / direction[i], b = (shape.halfSize[i] - origin[i]) / direction[i];
+      bottom = Math.max(bottom, Math.min(a, b)); top = Math.min(top, Math.max(a, b));
+    }
+    return top >= bottom ? { bottom, top } : null;
+  }
+  if (shape.type === 'capsule') {
+    const { axis, radius, halfSegment } = shape;
+    const roots = [];
+    function solve(a, b, c, valid) {
+      const discriminant = b * b - 4 * a * c;
+      if (a < 1e-16 || discriminant < 0) return;
+      for (const t of [(-b - Math.sqrt(discriminant)) / (2 * a), (-b + Math.sqrt(discriminant)) / (2 * a)]) if (valid(t)) roots.push(t);
+    }
+    const perp = [0, 1, 2].filter(i => i !== axis);
+    solve(perp.reduce((sum, i) => sum + direction[i] ** 2, 0), 2 * perp.reduce((sum, i) => sum + origin[i] * direction[i], 0), perp.reduce((sum, i) => sum + origin[i] ** 2, 0) - radius ** 2, t => Math.abs(origin[axis] + direction[axis] * t) <= halfSegment + 1e-8);
+    for (const sign of [-1, 1]) {
+      const capOrigin = origin.map((value, i) => value - (i === axis ? sign * halfSegment : 0));
+      solve(direction.reduce((sum, value) => sum + value ** 2, 0), 2 * capOrigin.reduce((sum, value, i) => sum + value * direction[i], 0), capOrigin.reduce((sum, value) => sum + value ** 2, 0) - radius ** 2, t => sign * (origin[axis] + direction[axis] * t) >= halfSegment - 1e-8);
+    }
+    return roots.length >= 2 ? { bottom: Math.min(...roots), top: Math.max(...roots) } : null;
+  }
+  throw new Error(`Unknown collider shape: ${shape.type}`);
+}
+
 export function mulberry32(seed) {
   return () => {
     let t = seed += 0x6D2B79F5;
@@ -16,16 +50,25 @@ export class RunnerGame {
   constructor(config = {}, routeLibrary = []) {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.routeLibrary = routeLibrary;
+    this.routeGenerator = null;
+    this.reset();
+  }
+
+  setRouteGenerator(generator) {
+    if (!generator || typeof generator.nextChunk !== 'function' || typeof generator.reset !== 'function') throw new Error('Route generator must implement reset(seed) and nextChunk(context)');
+    this.routeGenerator = generator;
     this.reset();
   }
 
   reset(seed = this.config.seed) {
     this.random = mulberry32(seed);
+    this.routeGenerator?.reset(seed);
+    this.routeTrace = [];
     this.accumulator = 0;
     this.nextId = 0;
     this.events = [];
     this.entities = [];
-    this.nextSection = 28;
+    this.nextSection = this.routeGenerator?.initialDistance ?? 28;
     this.sectionCount = 0;
     this.state = {
       phase: 'ready', distance: 0, coins: 0, score: 0,
@@ -95,6 +138,11 @@ export class RunnerGame {
     s.elapsed += dt;
     s.speed = Math.min(c.maximumSpeed, s.speed + c.acceleration * dt);
     s.distance += s.speed * dt;
+    for (const entity of this.entities) {
+      entity.previousDistance = entity.distance;
+      if (entity.movingTrain) entity.distance = entity.movingTrain.initialDistance - (s.distance - entity.movingTrain.referencePlayerDistance) * entity.movingTrain.ratio;
+      else if (entity.velocityZ) entity.distance -= entity.velocityZ * dt;
+    }
     p.laneElapsed += dt;
     const blend = clamp(p.laneElapsed / Math.max(dt, p.laneDuration), 0, 1);
     p.x = p.laneFrom + ((p.lane - 1) * c.laneSpacing - p.laneFrom) * blend;
@@ -124,12 +172,18 @@ export class RunnerGame {
         }
         continue;
       }
-      if (e.type === 'ramp' || e.type === 'decoration') continue;
+      if (e.type === 'ramp' || e.type === 'decoration' || e.type === 'gap') continue;
       const halfDepth = e.depth / 2 + c.playerRadius;
-      const sweptZ = e.distance + halfDepth >= previousDistance && e.distance - halfDepth <= s.distance;
+      const oldRelative = (e.previousDistance ?? e.distance) - previousDistance;
+      const newRelative = e.distance - s.distance;
+      const sweptZ = Math.max(oldRelative, newRelative) >= -halfDepth && Math.min(oldRelative, newRelative) <= halfDepth;
       if (!sweptZ || Math.abs(x - p.x) >= e.width / 2 + c.playerRadius) continue;
-      const bottom = e.bottom ?? 0;
-      const top = e.height;
+      const contactX = clamp(p.x, x - e.width / 2 + 1e-6, x + e.width / 2 - 1e-6);
+      const contactZ = clamp(s.distance, e.distance - e.depth / 2 + 1e-6, e.distance + e.depth / 2 - 1e-6);
+      const sourceBounds = sourceVerticalBounds(e, contactX, contactZ);
+      if (!sourceBounds) continue;
+      const bottom = sourceBounds.bottom;
+      const top = sourceBounds.top;
       const playerTop = p.y + (p.rollRemaining > 0 ? c.rollingHeight : c.standingHeight);
       if (playerTop > bottom + 0.04 && p.y < top - 0.08) {
         // A radius-expanded train front overlaps the last part of an adjoining
@@ -143,6 +197,10 @@ export class RunnerGame {
         break;
       }
     }
+    if (p.y < -6 && s.phase === 'running') {
+      s.phase = 'gameover'; s.collision = { type: 'gap', distance: s.distance };
+      this.events.push({ type: 'crash', obstacle: 'gap' });
+    }
     s.score = Math.floor(s.distance * c.distanceScore) + s.coins * c.coinScore;
     this.entities = this.entities.filter(e => e.distance + (e.depth ?? 0) / 2 > s.distance - c.removeBehind);
     this.ensureCourse();
@@ -154,9 +212,15 @@ export class RunnerGame {
     const front = train.distance - train.depth / 2;
     if (distance > front || distance < front - c.playerRadius) return false;
     return this.entities.some(ramp => {
-      if (ramp.type !== 'ramp' || Math.abs(ramp.height - train.height) > 0.08) return false;
+      if (ramp.type !== 'ramp') return false;
       const end = ramp.distance + ramp.depth / 2;
       const x = ramp.x ?? (ramp.lane - 1) * c.laneSpacing;
+      if (ramp.sourceShape) {
+        const current = sourceVerticalBounds(ramp, player.x, distance);
+        const atFront = sourceVerticalBounds(ramp, player.x, front + 1e-5);
+        return current && atFront && Math.abs(player.y - current.top) < 0.04 && atFront.top >= train.height - 0.1;
+      }
+      if (Math.abs(ramp.height - train.height) > 0.08) return false;
       if (Math.abs(end - front) > 0.04 || Math.abs(player.x - x) > ramp.width / 2) return false;
       const relative = distance - (ramp.distance - ramp.depth / 2);
       if (relative < 0 || relative > ramp.depth) return false;
@@ -166,17 +230,39 @@ export class RunnerGame {
   }
 
   surfaceHeight(distance, x, previousY) {
-    let floor = 0;
+    const inside = entity => Math.abs((entity.x ?? (entity.lane - 1) * this.config.laneSpacing) - x) < entity.width / 2 && Math.abs(entity.distance - distance) < entity.depth / 2;
+    let floor = this.entities.some(entity => (entity.type === 'gap' || entity.floor === false) && inside(entity)) ? -Infinity : 0;
     for (const e of this.entities) {
-      if (e.type !== 'train' && e.type !== 'ramp') continue;
+      if (e.type !== 'train' && e.type !== 'ramp' && !e.walkable) continue;
       const entityX = e.x ?? (e.lane - 1) * this.config.laneSpacing;
       if (Math.abs(entityX - x) > e.width / 2) continue;
       const relative = distance - (e.distance - e.depth / 2);
       if (relative < 0 || relative > e.depth) continue;
-      if (e.type === 'ramp') floor = Math.max(floor, relative / e.depth * e.height);
+      if (e.sourceShape) {
+        const bounds = sourceVerticalBounds(e, x, distance);
+        if (bounds && previousY >= bounds.top - (e.type === 'ramp' ? 0.35 : 0.12)) floor = Math.max(floor, bounds.top);
+      } else if (e.type === 'ramp') {
+        const height = e.surface ? this.sourceSurfaceHeight(e, x, distance) : (e.bottom ?? 0) + relative / e.depth * (e.height - (e.bottom ?? 0));
+        if (height != null) floor = Math.max(floor, height);
+      }
       else if (previousY >= e.height - 0.12) floor = Math.max(floor, e.height);
     }
     return floor;
+  }
+
+  sourceSurfaceHeight(entity, x, distance) {
+    const surface = entity.surface, dx = x - entity.x, dz = distance - entity.distance;
+    if (surface.polygon) {
+      let sign = 0;
+      for (let i = 0; i < surface.polygon.length; i++) {
+        const a = surface.polygon[i], b = surface.polygon[(i + 1) % surface.polygon.length];
+        const side = (b[0] - a[0]) * (dz - a[1]) - (b[1] - a[1]) * (dx - a[0]);
+        if (Math.abs(side) < 1e-8) continue;
+        if (sign && Math.sign(side) !== sign) return null;
+        sign = Math.sign(side);
+      }
+    }
+    return surface.a * dx + surface.b * dz + surface.c;
   }
 
   addEntity(entity) {
@@ -191,10 +277,19 @@ export class RunnerGame {
 
   ensureCourse() {
     while (this.nextSection < this.state.distance + this.config.lookAhead) {
-      if (this.routeLibrary.length) this.addRecoveredSection();
+      if (this.routeGenerator) this.addSourceSection();
+      else if (this.routeLibrary.length) this.addRecoveredSection();
       else this.addProvisionalSection();
       this.sectionCount++;
     }
+  }
+
+  addSourceSection() {
+    const chunk = this.routeGenerator.nextChunk({ startDistance: this.nextSection, speed: this.state.speed, elapsed: this.state.elapsed, playerDistance: this.state.distance, sectionIndex: this.sectionCount });
+    if (!Number.isFinite(chunk.length) || chunk.length <= 0) throw new Error('Recovered route chunk has no positive verified length');
+    for (const entity of chunk.entities) this.addEntity(entity);
+    this.routeTrace.push({ startDistance: this.nextSection, length: chunk.length, ...chunk.provenance, decisions: chunk.decisions });
+    this.nextSection += chunk.length;
   }
 
   addRecoveredSection() {

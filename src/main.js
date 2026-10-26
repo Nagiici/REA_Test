@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import { RunnerGame } from './game-core.js';
 import { loadRecoveredPack, characterFromGLB } from './asset-adapter.js';
+import { createEntityVisual } from './entity-visuals.js';
+import { SourceRouteGenerator } from './route-generator.js';
+import { EnvironmentRouteGenerator } from './environment-layout.js';
 import './style.css';
 
 const $ = id => document.getElementById(id);
@@ -47,23 +50,8 @@ const ground = mesh(new THREE.PlaneGeometry(350, 250), 0x9eaa95);
 ground.rotation.x = -Math.PI / 2; ground.position.set(0, -0.57, -65); ground.castShadow = false;
 const ballast = mesh(new THREE.PlaneGeometry(8.6, 240), 0x727e76);
 ballast.rotation.x = -Math.PI / 2; ballast.position.set(0, -0.06, -65); ballast.castShadow = false;
-const trackRoot = new THREE.Group(); scene.add(trackRoot);
-const decorations = new THREE.Group(); scene.add(decorations);
-const buildings = [];
-// Recovered city prefab geometry is installed once the source pack is ready.
-const scenerySpan = 180;
-function createScenery() {
-  for (const side of ['left', 'right']) for (let index = 0; index < 10; index++) {
-    const object = pack.clonePrefab(`MexicoCity_med_01_${side}`);
-    if (!object) continue;
-    const z = 18 - index * 18;
-    object.position.set(side === 'left' ? -1 : 1, 0, z);
-    decorations.add(object); buildings.push({ object, z });
-  }
-}
-
 const entityRoot = new THREE.Group(); scene.add(entityRoot);
-const entityObjects = new Map(), trackObjects = [];
+const entityObjects = new Map();
 let pack = null, character = null, loaded = false, previousPhase = 'ready', previousTime = performance.now();
 let best = 0;
 try { best = Number(localStorage.getItem('subway-browser-best') || 0); } catch {}
@@ -71,38 +59,14 @@ if (!Number.isFinite(best)) best = 0;
 $('best').textContent = Math.floor(best).toLocaleString();
 $('start').disabled = true; $('start-label').textContent = '准备角色…';
 
-function coinObject() {
-  // Original mesh includes an offscreen sentinel triangle below the ground;
-  // retain it, but do not use its full bounds to normalize the visible coin.
-  return pack.cloneProp('currency_coin') ?? new THREE.Group();
-}
-
-function fitObstacle(object, entity) {
-  object.updateMatrixWorld(true);
-  const bounds = new THREE.Box3().setFromObject(object), size = bounds.getSize(new THREE.Vector3());
-  const scale = new THREE.Vector3(entity.width / size.x, entity.height / size.y, entity.depth / size.z);
-  object.scale.multiply(scale);
-  // Place the actual extracted geometry at a centered collision footprint.
-  const holder = new THREE.Group();
-  object.position.set(-(bounds.min.x + bounds.max.x) / 2 * scale.x, -bounds.min.y * scale.y, -(bounds.min.z + bounds.max.z) / 2 * scale.z);
-  holder.add(object); return holder;
-}
-function createEntity(entity) {
-  if (entity.type === 'coin') return coinObject();
-  const key = { train: 'default_train_standard', barrier: 'blocker_jump', overhead: 'blocker_roll', ramp: 'MexicoCity_train_ramp' }[entity.type];
-  const recovered = key && pack?.cloneProp(key);
-  if (recovered) return fitObstacle(recovered, entity);
-  return new THREE.Group();
-}
-
 function updateEntities(time) {
   const ids = new Set();
   for (const entity of game.entities) {
     ids.add(entity.id);
     let object = entityObjects.get(entity.id);
-    if (!object) { object = createEntity(entity); entityObjects.set(entity.id, object); entityRoot.add(object); }
+    if (!object) { object = createEntityVisual(entity, pack); entityObjects.set(entity.id, object); entityRoot.add(object); }
     object.visible = !entity.collected;
-    object.position.set(entity.x ?? (entity.lane - 1) * game.config.laneSpacing, entity.type === 'coin' ? entity.y ?? 1.1 : 0, -(entity.distance - game.state.distance));
+    object.position.set(entity.x ?? (entity.lane - 1) * game.config.laneSpacing, entity.type === 'coin' && !entity.visual ? entity.y ?? 1.1 : 0, -(entity.distance - game.state.distance));
     if (entity.type === 'coin') { object.rotation.y = time * 1.6 + entity.id * 0.3; object.position.y += Math.sin(time * 2.2 + entity.id * 0.7) * 0.06; }
   }
   for (const [id, object] of entityObjects) if (!ids.has(id)) { entityRoot.remove(object); entityObjects.delete(id); }
@@ -116,21 +80,16 @@ function installCharacter(next) {
   window.__runner.character = character;
 }
 
-function createTracks() {
-  for (let lane = 0; lane < 3; lane++) for (let i = 0; i < 10; i++) {
-    const object = pack.clonePrefab('MexicoCity_track') ?? pack.cloneProp('track'); if (!object) continue;
-    object.position.set((lane - 1) * game.config.laneSpacing, 0, 18 - i * 18);
-    trackRoot.add(object); trackObjects.push({ object, z: 18 - i * 18 });
-  }
-}
-
 window.__runner = { game, renderer, scene, camera, pack: null, character: null, ready: false, errors: [],
   snapshot: () => ({ phase: game.state.phase, distance: game.state.distance, player: { ...game.state.player }, entities: game.entities.length, character: character?.name, animations: character?.animationNames, drawCalls: renderer.info.render.calls }),
 };
 
 loadRecoveredPack().then(result => {
   pack = result; window.__runner.pack = result;
-  installCharacter(result.character); createTracks(); createScenery(); loaded = true; window.__runner.ready = true;
+  if (!result.routeLibrary || !result.environmentBindings) throw new Error('原版关卡数据尚未就绪');
+  const source = new SourceRouteGenerator(result.routeLibrary, { seed: game.config.seed });
+  game.setRouteGenerator(new EnvironmentRouteGenerator(source, result.environmentBindings));
+  installCharacter(result.character); loaded = true; window.__runner.ready = true;
   $('start').disabled = false; $('start-label').textContent = '开始奔跑';
 }).catch(error => {
   console.error(error); window.__runner.errors.push(error.message);
@@ -257,8 +216,6 @@ function frame(now) {
   }
   if (loaded) {
     updateEntities(time);
-    for (const piece of trackObjects) piece.object.position.z = piece.z + s.distance % 18;
-    for (const building of buildings) building.object.position.z = ((building.z + s.distance + 162) % scenerySpan + scenerySpan) % scenerySpan - 162;
   }
   if (character) {
     character.object.position.set(p.x, p.y, 0);

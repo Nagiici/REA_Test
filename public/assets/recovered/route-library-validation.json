@@ -1,0 +1,23 @@
+{
+  "routes": 49,
+  "tutorialSections": 1,
+  "definitions": 60,
+  "scriptInstances": 9437,
+  "validatedNonNullPPtrs": 2884,
+  "objectIndexEntries": 19838,
+  "exactDuplicateAliases": {
+    "1b44e0dc63657f842bbcc110ace2714e:3": {
+      "route": "routes/default/chunks/routechunk_default_fallback",
+      "evidence": "All serialized object bytes, path IDs/types and external table match canonical resource asset"
+    },
+    "2b3996b7d25b4f642bab9c1fe7f62b8b:3": {
+      "route": "routes/default/chunks/routechunk_default_jetpack_landing",
+      "evidence": "All serialized object bytes, path IDs/types and external table match canonical resource asset"
+    },
+    "a4c29eed30873f94092bc700b3b1cb36:324": {
+      "route": "routes/default/chunks/normal/routechunk_default_train_tops_moving_multiple",
+      "evidence": "All serialized object bytes, path IDs/types and external table match canonical resource asset"
+    }
+  },
+  "errors": []
+}

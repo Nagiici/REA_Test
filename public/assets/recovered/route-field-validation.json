@@ -1,13 +1,13 @@
 {
   "decodedCounts": {
-    "TrackObject": 181,
-    "Selector": 90,
-    "PlaceholderPrefabProvider": 90,
-    "CoinCurve": 41,
-    "CurveParent": 41,
-    "Randomizer": 10,
-    "Mirror": 6,
-    "RouteChunk": 3
+    "Randomizer": 65,
+    "CurveParent": 578,
+    "TrackObject": 1605,
+    "PlaceholderPrefabProvider": 653,
+    "Selector": 653,
+    "CoinCurve": 578,
+    "Mirror": 46,
+    "RouteChunk": 49
   },
   "errors": [],
   "sourceEvidence": "/Users/luod/Hi3D/analysis/metadata-recovery/unity-serialization-fields.json"

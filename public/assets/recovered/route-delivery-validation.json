@@ -1,0 +1,14 @@
+{
+  "routes": 49,
+  "tutorialSections": 1,
+  "recursiveDefinitions": 60,
+  "fullyDecodedScriptInstances": 9437,
+  "settingsObjects": 49,
+  "weightedResourcePathsChecked": 43,
+  "terminalBindings": 20,
+  "environmentPrefabReferencesChecked": 40,
+  "renderPrefabs": 60,
+  "meshes": 70,
+  "textures": 13,
+  "errors": []
+}
