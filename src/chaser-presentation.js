@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { SourceCatchTimeline, selectCatchSequence, CLASSIC_MOTION_SOURCE } from './classic-motion.js';
+import { SourceCatchTimeline, SourceGuardVisibility, selectCatchSequence, CLASSIC_MOTION_SOURCE } from './classic-motion.js';
 import { mulberry32 } from './game-core.js';
 
 // Infinite-maxSpeed SmoothDamp math, checked against Unity's reference source:
@@ -13,8 +13,8 @@ function smooth(current, target, velocity, time, dt) {
   return (target - current > 0) === (next > target) ? [target, 0] : [next, (velocity - omega * step) * decay];
 }
 
-/** FollowingGuard source timing/physics over the replacement actor. Opacity,
- * body fit, render-frame sampling and availability remain browser adapters. */
+/** FollowingGuard source timing/physics and visibility over the replacement.
+ * Body fit and render-frame sampling remain browser adapters. */
 export function createChaserPresentation(actors, { bindings, additions, sourceActors } = {}) {
   const object = new THREE.Group(); object.name = 'ClassicChasers';
   const materials = [];
@@ -39,17 +39,24 @@ export function createChaserPresentation(actors, { bindings, additions, sourceAc
   let previousState = null, clock = 0, crashElapsed = 0, timeline = null, selected = null;
   let xVelocity = 0, floorVelocity = 0, floor = 0, verticalSpeed = 0, queue = [], pose = null, random;
   let previousPhase = null, introGeneration = 0, introTimes = new Map();
+  const visibility = new SourceGuardVisibility();
   object.visible = false;
-  const view = { object, catchAvatar: null, update(state, dt, events = []) {
+  const view = { object, catchAvatar: null, visibility, isShowing: false, trainSequenceActive: false, update(state, dt, events = []) {
     const p = state.player;
     if (state !== previousState) {
       previousState = state; clock = 0; crashElapsed = 0; timeline = selected = null; view.catchAvatar = null;
       xVelocity = floorVelocity = verticalSpeed = 0; floor = p.lastGroundedY ?? 0; queue = []; pose = null;
       previousPhase = null; introTimes = new Map();
+      visibility.reset(); view.isShowing = view.trainSequenceActive = false;
       random = mulberry32(0x43415443); object.position.set(p.x, floor, 3);
     }
     const frozen = state.phase === 'paused', phase = frozen ? state.pausedFrom : state.phase;
     if (frozen) return;
+    // Game.gameRevive -> ResetEnemy: ResetCatchUp, reset model roots, then
+    // ShowEnemies(false). A previous death must not leave showing latched on.
+    if (events.some(event => event.type === 'revive')) visibility.reset();
+    if (phase === 'intro' && previousPhase !== 'intro') visibility.beginIntro();
+    view.isShowing = visibility.step(dt, { guardClose: state.stumble.guardClose, dead: phase === 'gameover' }).isShowing;
     if (phase === 'intro') {
       if (previousPhase !== 'intro') {
         introGeneration++; introTimes = new Map(); queue = []; pose = null;
@@ -93,9 +100,10 @@ export function createChaserPresentation(actors, { bindings, additions, sourceAc
     const crashed = phase === 'gameover';
     const distance = state.stumble.guardDistanceNative;
     const speedRatio = state.speed / 11;
-    if (!crashed) { timeline = selected = null; view.catchAvatar = null; crashElapsed = 0; }
+    if (!crashed) { timeline = selected = null; view.catchAvatar = null; crashElapsed = 0; view.trainSequenceActive = false; }
     else {
-      if (crashElapsed === 0 && state.reaction?.name !== 'death_moving_train' && pools.caughtLeft.length && pools.caughtRight.length) {
+      if (crashElapsed === 0) view.trainSequenceActive = view.isShowing && state.reaction?.name === 'death_moving_train';
+      if (crashElapsed === 0 && view.isShowing && state.reaction?.name !== 'death_moving_train' && pools.caughtLeft.length && pools.caughtRight.length) {
         selected = selectCatchSequence({ ...pools, characterXNative: p.x * 10, trackXNative: (p.lane - 1) * 20, random }).sequence;
         timeline = new SourceCatchTimeline(selected);
       }
@@ -112,9 +120,8 @@ export function createChaserPresentation(actors, { bindings, additions, sourceAc
       else verticalSpeed = -event.velocity;
     }
     queue = queue.filter(event => event.at > clock);
-    const opacity = crashed ? 1 : THREE.MathUtils.clamp((30 - distance) / 12, 0, 1);
-    object.visible = phase !== 'ready' && !state.flight && opacity > .001;
-    for (const material of materials) { material.opacity = opacity; material.depthWrite = opacity > .95; }
+    object.visible = phase !== 'ready' && !state.flight && view.isShowing;
+    for (const material of materials) { material.opacity = 1; material.depthWrite = true; }
     if (timeline) {
       const sample = timeline.step(dt);
       object.position.lerp(new THREE.Vector3(p.x, p.y, 0), sample.guardApproachProgress);

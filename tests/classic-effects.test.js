@@ -26,3 +26,28 @@ test('real classic FX react to coins, crash and jetpack; pause freezes and new r
  assert.equal(Object.values(effects.stats.activeParticles).reduce((a,b)=>a+b),0);
  for(const p of Object.values(effects.particles))p.dispose();
 });
+
+test('revive starts camera particles before resume, then uses the source default shield clip and physics attachment',()=>{
+ const revive=read(manifest.classicReviveEffect),clip=read(manifest.animations[revive.animation.defaultAnimationKey].file);
+ const effects=createClassicEffects({...pack,classicReviveEffect:revive,animations:{[revive.animation.defaultAnimationKey]:clip}});
+ const camera=new THREE.PerspectiveCamera(),g=new RunnerGame();g.start();g.fatalHit({type:'train'},'death_moving_train');g.drainEvents();
+ assert.equal(g.revive(),true);effects.update(g.state,0,g.drainEvents(),camera);
+ assert.ok(effects.particles.fx_revive_camera.aliveCount>0);assert.equal(effects.shield.object.visible,false);
+ for(let i=0;i<17;i++)g.advance(1/120);
+ effects.update(g.state,17/120,g.drainEvents(),camera);assert.equal(effects.shield.object.visible,false);
+ g.advance(1/120);effects.update(g.state,1/120,g.drainEvents(),camera);
+ assert.equal(g.state.phase,'running');assert.equal(effects.shield.object.visible,true);assert.equal(effects.shield.age,0);
+ assert.deepEqual(effects.shield.object.position.toArray(),[g.state.player.x,g.state.player.y,0]);
+ assert.deepEqual(effects.shield.node.scale.toArray(),[1.5,1.5,1.5]);
+ const color=effects.shield.materials[0].color.toArray();
+ assert.ok(Math.abs(color[0]-.33582091331481934)<1e-8);
+ effects.update(g.state,1.5,[],camera);const rotation=effects.shield.node.quaternion.toArray();
+ assert.equal(effects.stats.reviveShield.animationEnabled,false);assert.equal(effects.shield.object.visible,true);
+ g.pause();effects.update(g.state,10,[],camera);assert.equal(effects.shield.age,1.5);g.pause();
+ effects.update(g.state,.49,[],camera);assert.deepEqual(effects.shield.node.quaternion.toArray(),rotation);
+ assert.deepEqual(effects.shield.materials[0].color.toArray(),color);assert.equal(effects.shield.object.visible,true);
+ effects.update(g.state,.02,[],camera);assert.equal(effects.shield.object.visible,false);assert.equal(effects.particles.fx_revive_camera.aliveCount,0);
+ effects.update(g.state,0,[{type:'revive'}],camera);assert.equal(effects.shield.object.visible,true);
+ g.reset();effects.update(g.state,0,[],camera);assert.equal(effects.shield.object.visible,false);
+ for(const p of Object.values(effects.particles))p.dispose();
+});

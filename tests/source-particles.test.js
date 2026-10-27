@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import * as THREE from 'three';
-import { createSourceParticleEffect, evaluateParticleCurve, evaluateParticleMinMax } from '../src/source-particles.js';
+import { createSourceParticleEffect, evaluateParticleCurve, evaluateParticleMinMax, particleCurlNoise } from '../src/source-particles.js';
 
 const root = new URL('../public/assets/recovered/', import.meta.url);
 const json = name => JSON.parse(fs.readFileSync(new URL(name, root), 'utf8'));
@@ -28,7 +28,7 @@ test('source hoverboard burst emits 35, uses its texture and expires after stop'
   const effect = createSourceParticleEffect('fx_board_crash', pack, options).play();
   assert.equal(effect.aliveCount, 35);
   assert.ok(meshes(effect).every(mesh => mesh.material.map));
-  assert.ok(meshes(effect).every(mesh => mesh.material.blending === THREE.AdditiveBlending));
+  assert.ok(meshes(effect).every(mesh => mesh.material.blending === THREE.CustomBlending && mesh.material.blendSrc === THREE.SrcAlphaFactor && mesh.material.blendDst === THREE.OneMinusSrcAlphaFactor));
   effect.update(.2); assert.equal(effect.aliveCount, 35);
   effect.stop().update(1); assert.equal(effect.aliveCount, 0);
   effect.play(); assert.equal(effect.aliveCount, 35);
@@ -95,4 +95,34 @@ test('per-emitter budget is bounded and disclosed', () => {
   assert.equal(effect.aliveCount, 10);
   assert.ok(effect.limitations.some(line => line.includes('particle budget 10')));
   effect.dispose();
+});
+
+test('billboard camera basis survives reflected source root and a rotated attachment', () => {
+  const effect = createSourceParticleEffect('fx_board_crash', pack, options).play();
+  effect.object.rotation.y = .6;
+  const camera = new THREE.PerspectiveCamera(50, 1, .1, 100); camera.position.set(2, 5, 8); camera.lookAt(0, 1, 0); camera.updateMatrixWorld();
+  effect.update(0, { camera });
+  const particle = meshes(effect)[0]; particle.updateWorldMatrix(true, false);
+  const normal = new THREE.Vector3(0, 0, 1).transformDirection(particle.matrixWorld);
+  const cameraNormal = new THREE.Vector3(0, 0, 1).applyQuaternion(camera.quaternion);
+  close(normal.dot(cameraNormal), 1);
+  assert.ok(particle.matrixWorld.determinant() > 0, 'screen UV basis should not be mirrored by source conversion');
+  effect.dispose();
+});
+
+test('source grind has fixed length ratio, not an invented velocity multiplier', () => {
+  const effect = createSourceParticleEffect('fx_grind_sparks', pack, { ...options, rootPosition: [0, 0, 0] }).play();
+  const camera = new THREE.PerspectiveCamera(); camera.position.z = 10; camera.updateMatrixWorld(); effect.update(.02, { camera });
+  const particle = meshes(effect)[0]; particle.updateWorldMatrix(true, false);
+  const scale = particle.getWorldScale(new THREE.Vector3());
+  close(Math.abs(scale.y / scale.x), 6.210000038146973);
+  effect.dispose();
+});
+
+test('curl approximation is deterministic, spatially continuous and frequency-sensitive', () => {
+  const p = new THREE.Vector3(.43, 2.78, -9.13);
+  const a = particleCurlNoise(p, .5), b = particleCurlNoise(p.clone().addScalar(.0001), .5);
+  assert.deepEqual(a.toArray(), particleCurlNoise(p, .5).toArray());
+  assert.ok(a.distanceTo(b) < .01);
+  assert.ok(a.distanceTo(particleCurlNoise(p, 1)) > .01);
 });

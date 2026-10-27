@@ -13,11 +13,14 @@ import { ClassicCamera, classicCameraFov } from './classic-camera.js';
 import { ClassicCameraVolumes } from './classic-camera-volumes.js';
 import { SourceCameraRig } from './source-camera-rig.js';
 import { createClassicEffects } from './classic-effects.js';
+import { createClassicIntroProps } from './classic-intro-props.js';
+import { movingTrainPresentation } from './classic-motion.js';
 import './style.css';
 
 const $ = id => document.getElementById(id);
 const canvas = $('game');
-// Game.OnCatchPlayer uses serialized reviveWaitTime=3 before the SaveMe offer.
+// Source death presentation defaults to 3 seconds; local revive UI uses that
+// window while retaining its explicit browser offer flow.
 const game = new RunnerGame({ catchPresentationSeconds: 3 });
 let renderer;
 try {
@@ -40,7 +43,8 @@ scene.fog = new THREE.Fog(0xb1d9d4, 42, 125);
 const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 190);
 const cameraController = new ClassicCamera({ aspect: innerWidth / innerHeight });
 const cameraVolumes = new ClassicCameraVolumes();
-let introRig = null, introStage = null, effects = null, presentationTime = 0, cameraState = null;
+let introRig = null, introStage = null, introProps = null, effects = null, presentationTime = 0, cameraState = null;
+let trainReaction = null;
 const ambient = new THREE.HemisphereLight(0xf2ffef, 0x46605e, 2.2);
 scene.add(ambient);
 const sun = new THREE.DirectionalLight(0xffedc2, 2.4);
@@ -96,15 +100,17 @@ function updateEntities(time) {
 }
 
 function installCharacter(next) {
+  introProps?.dispose(); introProps = null;
+  gameAudio.animationEvents?.reset();
   if (character) scene.remove(character.object);
   character = next; scene.add(character.object);
   equipment = null;
   if (pack) {
     const boardParent = character.native.getObjectByName('SourceBoardAttachment');
     const spine = character.native.getObjectByName('LowerSpine_jnt');
-    equipment = { board: pack.clonePrefab('hoverboard_default'), jetpack: pack.clonePrefab('wearable_jetpack'), spray: pack.clonePrefab('intro_spray_can') };
+    equipment = { board: pack.clonePrefab('hoverboard_default'), jetpack: pack.clonePrefab('wearable_jetpack') };
     const hand = character.native.getObjectByName('R_Hand_jnt');
-    if (hand && equipment.spray) { equipment.spray.children[0].scale.setScalar(.08); hand.add(equipment.spray); }
+    if (hand && pack.introProps) introProps = createClassicIntroProps(pack, { character });
     if (boardParent) { equipment.board.children[0].scale.setScalar(.08); boardParent.add(equipment.board); }
     else { equipment.board.position.y = .05; character.object.add(equipment.board); }
     if (spine) {
@@ -128,7 +134,7 @@ window.__runner = { game, renderer, scene, camera, cameraController, cameraVolum
 
 Promise.all([loadRecoveredPack(undefined, { includeChasers: false }), loadYellowCharacter(), loadRedNoseChaser()]).then(([result, yellowCharacter, redNose]) => {
   pack = result; window.__runner.pack = result;
-  playerMotion = new PlayerMotion(result.classicMotionPools); gameAudio = new ClassicAudio(result.classicAudio);
+  playerMotion = new PlayerMotion(result.classicMotionPools); gameAudio = new ClassicAudio(result.classicAudio, undefined, result.classicAudioEvents);
   introRig = new SourceCameraRig(result.classicPresentation.introGraph);
   introStage = result.clonePrefab(result.manifest.introStage.prefabKey); scene.add(introStage);
   effects = createClassicEffects(result); scene.add(effects.object); window.__runner.effects = effects;
@@ -303,10 +309,20 @@ function frame(now) {
     chasers.update(s, dt, events);
   }
   if (character) {
-    character.object.position.set(p.x, p.y, 0);
+    const displayPhase = s.phase === 'paused' ? s.pausedFrom : s.phase;
+    if (trainReaction && (trainReaction.state !== s || displayPhase !== 'gameover' || s.reaction?.name !== 'death_moving_train')) trainReaction = null;
+    if (events.some(event => event.type === 'crash' && event.animation === 'death_moving_train')) {
+      trainReaction = { state: s, elapsed: 0, startPosition: [p.x, p.y, 0], cameraPosition: camera.position.toArray(),
+        guardSequence: chasers?.trainSequenceActive === true };
+    }
+    if (trainReaction && s.phase !== 'paused') trainReaction.elapsed += dt;
+    // CharacterRendering's half-second train-hit camera tween, followed by
+    // the separately gated guard sink only when ShowEnemies was true at impact.
+    const trainPose = trainReaction ? movingTrainPresentation(trainReaction) : null;
+    character.object.position.fromArray(trainPose?.position ?? [p.x, p.y, 0]);
+    window.__runner.trainPresentation = trainPose;
     const lean = Math.max(-0.13, Math.min(0.13, ((p.lane - 1) * game.config.laneSpacing - p.x) * -0.16));
     if (s.phase !== 'paused') character.object.rotation.z = THREE.MathUtils.damp(character.object.rotation.z, lean, 12, dt);
-    const displayPhase = s.phase === 'paused' ? s.pausedFrom : s.phase;
     const motion = displayPhase === 'ready' ? { name: 'idle_paint', fade: .2 }
       : displayPhase === 'intro' ? { name: 'intro_run', token: s.intro, fade: .2 }
       : playerMotion.select(s, events, character);
@@ -317,8 +333,10 @@ function frame(now) {
       character.setAnimation(motion.name, motion.duration, displayPhase === 'intro' ? 'intro' : motion.token ?? null, { fade: motion.fade });
       if (motion.speed != null) character.setTimeScale?.(motion.speed);
     }
-    if (equipment) { equipment.board.visible = game.hoverboard.visible; equipment.jetpack.visible = !!s.flight; if (equipment.spray) equipment.spray.visible = displayPhase === 'ready'; }
+    if (equipment) { equipment.board.visible = game.hoverboard.visible; equipment.jetpack.visible = !!s.flight; }
     if (s.phase !== 'paused') character.mixer.update(dt);
+    const animationState = character.getAnimationSnapshot?.();
+    if (animationState) { game.updateAnimationState?.(animationState); gameAudio.updateAnimation(s, animationState); }
   }
   if (cameraState !== s) { cameraController.reset(); cameraState = s; }
   const cameraRegion = cameraVolumes.update(s, game.entities);
@@ -345,6 +363,8 @@ function frame(now) {
   camera.lookAt(lookTarget);
   if (camera.fov !== pose.fov) { camera.fov = pose.fov; camera.updateProjectionMatrix(); }
   effects?.update(s, dt, events, camera, character);
+  window.__runner.introProps = introProps;
+  introProps?.update(dt, { phase: s.phase, paused: s.phase === 'paused', camera });
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }

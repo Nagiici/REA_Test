@@ -19,7 +19,98 @@ export const CLASSIC_MOTION_SOURCE = Object.freeze({
   catchOffsetDivisor: 25,
   catchSideThresholdNative: 20,
   guardJumpVelocityFactor: 0.699999988079071,
+  heightTransitionMinNative: 70,
+  heightTransitionMaxNative: 125,
+  heightTransitionRollSpeedNative: -250,
+  highRouteRollThresholdNative: 200,
+  movingTrainTweenSeconds: .5,
+  movingTrainCameraYOffsetNative: -33,
+  movingTrainSinkDelay: .6,
+  movingTrainSinkSeconds: 1,
+  movingTrainSinkYNative: -5,
+  guardResetCatchUpSeconds: 1.5,
 });
+
+/** FollowingGuard ShowEnemies/CatchUp/ResetCatchUpCoroutine visibility.
+ * This is source GameObject activation, independent of any opacity/frustum.
+ * Caller may send explicit lifecycle calls or its authoritative guardClose
+ * value to step(). An already-dead guard does not hide when its wait ends. */
+export class SourceGuardVisibility {
+  constructor({ resetCatchUpSeconds = CLASSIC_MOTION_SOURCE.guardResetCatchUpSeconds } = {}) {
+    if (!(resetCatchUpSeconds > 0) || !Number.isFinite(resetCatchUpSeconds)) throw new RangeError('Invalid guard retreat duration');
+    this.resetCatchUpSeconds = resetCatchUpSeconds; this.reset();
+  }
+  reset() { this.isShowing = false; this.closeToCharacter = false; this.hideRemaining = null; return this.snapshot(); }
+  beginIntro() { return this.catchUp(); }
+  catchUp() {
+    this.isShowing = true; this.closeToCharacter = true; this.hideRemaining = null;
+    return this.snapshot();
+  }
+  resetCatchUp() {
+    if (this.closeToCharacter) {
+      this.closeToCharacter = false;
+      // Distance retreat takes duration; the yielded audio fade takes twice it.
+      this.hideRemaining = this.resetCatchUpSeconds * 2;
+    }
+    return this.snapshot();
+  }
+  snapshot() { return { isShowing: this.isShowing, closeToCharacter: this.closeToCharacter, hideRemaining: this.hideRemaining }; }
+  step(dt, { guardClose, dead = false, paused = false } = {}) {
+    validateDelta(dt);
+    if (paused) return this.snapshot();
+    if (guardClose === true && !this.closeToCharacter) this.catchUp();
+    else if (guardClose === false && this.closeToCharacter) this.resetCatchUp();
+    if (this.hideRemaining !== null) {
+      this.hideRemaining -= dt;
+      if (this.hideRemaining <= 1e-10) {
+        this.hideRemaining = null;
+        if (!dead) this.isShowing = false;
+      }
+    }
+    return this.snapshot();
+  }
+}
+
+/** Running.Begin82564 samples this on state entry, not on every airborne frame. */
+export function runningTransitionFromHeight(heightNative) {
+  return heightNative > CLASSIC_MOTION_SOURCE.heightTransitionMinNative
+    && heightNative < CLASSIC_MOTION_SOURCE.heightTransitionMaxNative;
+}
+
+/** Character.Roll81948, followed by Running.HandleSwipe82543's route override.
+ * Route-relative height is optional because a surface/roof height is NOT the
+ * Route.GetRelativePosition origin. Ordinary default-route coordinates are flat. */
+export function rollVerticalSpeed({ gravityNative = 200, jumpHeightNative = 20,
+  transitionFromHeight = false, routeRelativeHeightNative = null } = {}) {
+  if (routeRelativeHeightNative > CLASSIC_MOTION_SOURCE.highRouteRollThresholdNative)
+    return -Math.sqrt(2 * gravityNative * routeRelativeHeightNative);
+  return transitionFromHeight ? CLASSIC_MOTION_SOURCE.heightTransitionRollSpeedNative
+    : -Math.sqrt(2 * gravityNative * jumpHeightNative);
+}
+
+/** Two separately gated native presentation tweens, in caller coordinates.
+ * CharacterRendering82330 first moves X/Y toward the captured camera (Z stays
+ * fixed). FollowingGuard17030 may later sink the captured position. Supply its
+ * actual .6s capture if another presentation writer moved the actor meanwhile.
+ * guardSequence must be an explicitly established sequence, not any crash. */
+export function movingTrainPresentation({ elapsed, startPosition, cameraPosition,
+  guardSequence = false, guardSinkStartPosition = null, unitScale = .1 }) {
+  validateDelta(elapsed);
+  if (!(unitScale > 0) || ![startPosition, cameraPosition].every(p => Array.isArray(p) && p.length === 3 && p.every(Number.isFinite)))
+    throw new RangeError('Invalid moving-train presentation coordinates');
+  const source = CLASSIC_MOTION_SOURCE;
+  const target = [cameraPosition[0], cameraPosition[1] + source.movingTrainCameraYOffsetNative * unitScale, startPosition[2]];
+  const blend = Math.min(1, elapsed / source.movingTrainTweenSeconds);
+  let position = startPosition.map((v, i) => v + (target[i] - v) * blend);
+  let stage = blend < 1 ? 'camera-tween' : 'hold';
+  if (guardSequence && elapsed >= source.movingTrainSinkDelay) {
+    const captured = guardSinkStartPosition ?? target;
+    const sink = Math.min(1, (elapsed - source.movingTrainSinkDelay) / source.movingTrainSinkSeconds);
+    position = [captured[0], captured[1] + (source.movingTrainSinkYNative * unitScale - captured[1]) * sink, captured[2]];
+    stage = sink < 1 ? 'guard-sink' : 'finished';
+  }
+  return { position, stage };
+}
 
 /** The normal and small jump roles use the SAME serialized jump pool by default. */
 export function jumpRole({ heightNative = 0, normalJumpHeightNative = 20, noLandStumbling = false } = {}) {

@@ -30,8 +30,8 @@ test('paired catch waits three active seconds before offering the full eight sec
  ticks(g,240);assert.equal(g.state.catchRemaining,0);assert.equal(g.state.revival.phase,'offered');assert.equal(g.state.revival.offerRemaining,8);
  assert.equal(g.revive(),true);ticks(g,18);assert.equal(g.state.phase,'running');
 });
-test('moving-train death does not inherit the ordinary catch callback UI delay',()=>{
- const g=game({catchPresentationSeconds:3});g.fatalHit({type:'train'},'death_moving_train');assert.equal(g.state.catchRemaining,0);assert.equal(g.state.revival.phase,'offered');
+test('moving-train death retains the source default presentation wait',()=>{
+ const g=game({catchPresentationSeconds:3});g.fatalHit({type:'train'},'death_moving_train');assert.equal(g.state.catchRemaining,3);assert.notEqual(g.state.revival.phase,'offered');
 });
 test('normal motion selects source pools, respects landing during rolls and replays accepted roll tokens',()=>{
  const g=game(),p=g.state.player,m=new PlayerMotion(read('classic-motion-pools.json')),actor={clipDurations:{dodge_right:.5,landing:.166667,roll:.5416669845581055}};

@@ -254,6 +254,9 @@ export async function loadRecoveredPack(base = '/assets/recovered/', { includeCh
   const environmentBindings = environmentPath ? await fetchJson(base + (typeof environmentPath === 'string' ? environmentPath : environmentPath.file)) : null;
   const classicBindings = manifest.classicAnimationParameters ? await fetchJson(base + manifest.classicAnimationParameters) : null;
   const classicAudio = manifest.classicAudio ? await fetchJson(base + manifest.classicAudio) : null;
+  const classicAudioEvents = manifest.classicAudioEvents ? await fetchJson(base + manifest.classicAudioEvents) : null;
+  const introProps = manifest.classicIntroProps ? await fetchJson(base + manifest.classicIntroProps) : null;
+  const classicReviveEffect = manifest.classicReviveEffect ? await fetchJson(base + manifest.classicReviveEffect) : null;
   const classicPresentation = manifest.classicPresentation ? await fetchJson(base + manifest.classicPresentation) : null;
   const classicMotionPools = manifest.classicMotionPools ? await fetchJson(base + manifest.classicMotionPools) : {};
   const character = characterFromUnity({ jake_Mesh: meshData.jake_Mesh, jake_head: meshData.jake_head }, rig, textures.jake_tex_low, animations);
@@ -287,7 +290,7 @@ export async function loadRecoveredPack(base = '/assets/recovered/', { includeCh
     props[name] = wrapper;
   }
   const prefabs = Object.fromEntries(Object.entries(prefabData).map(([name, data]) => [name, prefabFromUnity(data, meshData, textures, manifest)]));
-  return { manifest, character, chasers, props, prefabs, prefabData, textures, meshData, animations, cameraAnimations, routeLibrary, environmentBindings, classicBindings, classicAudio, classicMotionPools, classicPresentation, presentation: classicPresentation,
+  return { manifest, character, chasers, props, prefabs, prefabData, textures, meshData, animations, cameraAnimations, routeLibrary, environmentBindings, classicBindings, classicAudio, classicAudioEvents, introProps, classicReviveEffect, classicMotionPools, classicPresentation, presentation: classicPresentation,
     cloneProp: name => props[name]?.clone(true), clonePrefab: name => prefabs[name]?.clone(true) };
 }
 
@@ -306,14 +309,38 @@ export async function characterFromGLB(buffer, { name = '自定义角色', sourc
   native.traverse(object => { if (object.isMesh) { object.castShadow = true; object.frustumCulled = false; } });
   wrapper.add(native);
   const mixer = new THREE.AnimationMixer(native);
+  const animation = createCharacterAnimationController(mixer, gltf.animations);
+  animation.setAnimation('run');
+  return { object: wrapper, native, mixer, ...animation, source, name,
+    clipDurations: Object.fromEntries(gltf.animations.map(c => [c.name, c.duration])),
+    animationNames: gltf.animations.map(c => c.name) };
+}
+
+/** Animation-only bridge, independent of model fitting and skeleton retargeting.
+ * Snapshot values are copies. A fading outgoing roll remains tracked until the
+ * mixer disables it, matching the native coroutine's enabled-state condition. */
+export function createCharacterAnimationController(mixer, clips) {
   const actions = new Map();
-  for (const clip of gltf.animations) actions.set(clip.name, mixer.clipAction(clip));
-  let playing = null, playingToken = null, catchBase = null;
+  const playback = new Map();
+  for (const clip of clips) {
+    const action = mixer.clipAction(clip);
+    actions.set(clip.name, action);
+    playback.set(action, { activation: 0, token: null, loopCount: 0 });
+  }
+  let playing = null, playingToken = null, catchBase = null, roll = null, generation = 0;
+  mixer.addEventListener('loop', event => {
+    const state = playback.get(event.action);
+    if (state) state.loopCount += event.loopDelta;
+  });
+  function activate(action, token) {
+    playback.set(action, { activation: ++generation, token, loopCount: 0 });
+    action.reset().setEffectiveWeight(1);
+  }
   function setAnimation(name, duration, token = null, options = {}) {
     const fallback = name.startsWith('board_') ? name.slice(6) : name === 'flight' ? 'jump' : name;
     const match = actions.has(name) ? name : actions.has(fallback) ? fallback : [...actions.keys()].find(key => key.toLowerCase().includes(fallback)) ?? [...actions.keys()][0];
     if (!match || playing === match && playingToken === token) return;
-    const action = actions.get(match); action.reset().setEffectiveWeight(1);
+    const action = actions.get(match); activate(action, token);
     // Physics owns the source roll deadline. Looping through the final fixed
     // step avoids a clamped frozen pose; new accepted rolls have new tokens.
     if (['run', 'roll', 'flight', 'board_run', 'board_roll', 'top_menu', 'idle_paint'].includes(name) || /^run\d/.test(name)) {
@@ -323,7 +350,21 @@ export async function characterFromGLB(buffer, { name = '自定义角色', sourc
     }
     else { action.setLoop(THREE.LoopOnce, 1); action.clampWhenFinished = true; action.setDuration(duration || action.getClip().duration); }
     action.play();
-    if (playing && playing !== match) actions.get(playing).crossFadeTo(action, options.fade ?? 0.08, false);
+    // Unity StopSameLayer fades every currently playing state. In particular,
+    // rapid roll→dodge→jump must not leave an older action enabled indefinitely.
+    const fade = options.fade ?? .08;
+    let outgoing = false;
+    for (const other of actions.values()) if (other !== action && other.isScheduled()) {
+      outgoing = true;
+      if (fade > 0) {
+        // Three's fadeOut starts from a unit multiplier. Capture its current
+        // effective weight first so an already-fading older clip cannot jump
+        // back up to full weight during roll→dodge→jump chains.
+        other.setEffectiveWeight(other.getEffectiveWeight()).fadeOut(fade);
+      } else other.stop();
+    }
+    if (outgoing && fade > 0) action.fadeIn(fade);
+    if (name === 'roll' || name === 'board_roll') roll = { name: match, token, action };
     playing = match; playingToken = token;
   }
   function setTimeScale(value) { if (playing) actions.get(playing).setEffectiveTimeScale(value); }
@@ -336,16 +377,22 @@ export async function characterFromGLB(buffer, { name = '自定义角色', sourc
         other.stopFading();
         if (key !== catchBase && key !== name) other.stop();
       }
-      action.reset().setLoop(THREE.LoopOnce, 1); action.clampWhenFinished = true; action.play();
+      activate(action, token); action.setLoop(THREE.LoopOnce, 1); action.clampWhenFinished = true; action.play();
       playing = name; playingToken = token;
     }
     if (catchBase && catchBase !== name) actions.get(catchBase).setEffectiveWeight(1 - weight);
     action.time = Math.min(time, action.getClip().duration); action.setEffectiveWeight(weight);
   }
-  setAnimation('run');
-  return { object: wrapper, native, mixer, setAnimation, setTimeScale, setCatchAnimation, source, name,
-    clipDurations: Object.fromEntries(gltf.animations.map(c => [c.name, c.duration])),
-    animationNames: gltf.animations.map(c => c.name) };
+  function getAnimationSnapshot() {
+    return { current: { name: playing, token: playingToken },
+      actions: [...actions].map(([name, action]) => ({ name, ...playback.get(action),
+        time: action.time, duration: action.getClip().duration, active: action.isScheduled(),
+        enabled: action.enabled, weight: action.isScheduled() ? action.getEffectiveWeight() : 0,
+        paused: action.paused, effectiveTimeScale: action.getEffectiveTimeScale() })),
+      roll: roll && { name: roll.name, token: roll.token,
+        enabled: roll.action.enabled && roll.action.isScheduled(), rawLength: roll.action.getClip().duration } };
+  }
+  return { setAnimation, setTimeScale, setCatchAnimation, getAnimationSnapshot };
 }
 
 export async function loadYellowCharacter() {

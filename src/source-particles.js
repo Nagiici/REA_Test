@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { ImprovedNoise } from 'three/addons/math/ImprovedNoise.js';
+import { createSourceEffectMaterial, setSourceParticleColor, disposeSourceEffectMaterial } from './source-effect-material.js';
 
 // Serialized enum values: UnityCsReference ParticleSystemEnums.cs and
 // InitialModuleUI.cs (moveWithTransform is the simulation-space property).
@@ -7,6 +9,24 @@ const mix = (a, b, t) => a + (b - a) * t;
 const vector = (v, fallback = 0) => new THREE.Vector3(v?.x ?? fallback, v?.y ?? fallback, v?.z ?? fallback);
 const lookup = (items, key) => items instanceof Map ? items.get(key) : items?.[key];
 const sourceRef = source => `${source.asset}:${source.pathId}`;
+const perlin = new ImprovedNoise();
+
+// Unity documents Curl Noise based on Perlin; its private native permutation,
+// seed and integration are unavailable. This deterministic curl field is an
+// explicitly bounded browser approximation, using the serialized parameters.
+export function particleCurlNoise(position, frequency, octaves = 1, octaveMultiplier = .5, octaveScale = 2) {
+  const result = new THREE.Vector3(), h = .01;
+  const potential = (axis, x, y, z) => perlin.noise(x + axis * 31.416, y + axis * 47.853, z + axis * 12.793);
+  for (let octave = 0, amplitude = 1; octave < octaves; octave++, amplitude *= octaveMultiplier, frequency *= octaveScale) {
+    const [x, y, z] = position.toArray().map(v => v * frequency);
+    const derivative = (axis, coordinate) => {
+      const a = [x, y, z], b = [x, y, z]; a[coordinate] += h; b[coordinate] -= h;
+      return (potential(axis, ...a) - potential(axis, ...b)) / (2 * h);
+    };
+    result.addScaledVector(new THREE.Vector3(derivative(2, 1) - derivative(1, 2), derivative(0, 2) - derivative(2, 0), derivative(1, 0) - derivative(0, 1)), amplitude);
+  }
+  return result;
+}
 
 export function evaluateParticleCurve(curve, t, fallback = 0) {
   const keys = curve?.m_Curve ?? [];
@@ -100,8 +120,10 @@ function geometry(data) {
   const out = new THREE.BufferGeometry();
   out.setAttribute('position', new THREE.Float32BufferAttribute(data.positions.flat(), 3));
   if (data.uv?.length) out.setAttribute('uv', new THREE.Float32BufferAttribute(data.uv.flat(), 2));
-  if (data.colors?.length) out.setAttribute('color', new THREE.Float32BufferAttribute(data.colors.flat(), data.colors[0].length));
+  if (data.colors?.length) out.setAttribute('sourceColor', new THREE.Float32BufferAttribute(data.colors.flatMap(c => c.length === 4 ? c : [...c, 1]), 4));
+  if (data.normals?.length) out.setAttribute('normal', new THREE.Float32BufferAttribute(data.normals.flat(), 3));
   out.setIndex(data.submeshes.flat(Infinity));
+  if (!out.getAttribute('normal')) out.computeVertexNormals();
   out.computeBoundingSphere(); return out;
 }
 
@@ -125,11 +147,11 @@ export function createSourceParticleEffect(key, pack, options = {}) {
   for (const row of graph.nodes) (nodes.get(row.parentId) ?? native).add(nodes.get(row.id));
   const sourceRoot = nodes.get(graph.rootNodeId);
   if (options.rootPosition) sourceRoot.position.fromArray(options.rootPosition);
-  const limitations = new Set(['Unity shader distortion/fog and custom shader math are not reproduced; source textures, colors and additive/alpha blend class are used.']);
+  const limitations = new Set(['Scene-wide shader distortion/fog is opt-in through shaderGlobals; default effect rendering does not bend independently of the world.']);
   const maxParticles = options.maxParticles ?? 256;
   const random = options.random ?? Math.random;
   const meshByRef = new Map(Object.entries(pack.manifest?.meshes ?? {}).map(([k, v]) => [sourceRef(v.source), lookup(pack.meshData, k)]));
-  const ownedTextures = [], geometries = new Set(), materials = new Set(), systems = [];
+  const geometries = new Set(), materials = new Set(), systems = [];
   const gravitySource = presentation.physics?.fields?.m_Gravity ?? { x: 0, y: -9.8100004196167, z: 0 };
   const gravityWorld = vector(gravitySource).multiply(new THREE.Vector3(.1, .1, -.1));
   let isPlaying = false;
@@ -140,16 +162,7 @@ export function createSourceParticleEffect(key, pack, options = {}) {
     if (!initial || !renderer || !record) { limitations.add(`Skipped ${ref}: no verified renderer/material.`); continue; }
     const mode = renderer.m_RenderMode;
     if (![0, 1, 2, 3, 4].includes(mode)) continue;
-    const texInfo = record.textures?._MainTex;
-    let map = texInfo ? lookup(pack.textures, texInfo.name) : null;
-    if (texInfo && !map) throw new Error(`Source texture ${texInfo.name} has not been loaded`);
-    if (map) {
-      map = map.clone(); map.repeat.fromArray(texInfo.scale ?? [1, 1]); map.offset.fromArray(texInfo.offset ?? [0, 0]);
-      map.wrapS = map.wrapT = THREE.RepeatWrapping; ownedTextures.push(map);
-    }
-    const tint = record.colors._TintColor ?? record.colors._Color ?? [1, 1, 1, 1];
-    const baseMaterial = new THREE.MeshBasicMaterial({ map, transparent: true, depthWrite: false, side: THREE.DoubleSide,
-      blending: /Additive/i.test(record.shader?.name ?? '') ? THREE.AdditiveBlending : THREE.NormalBlending });
+    const baseMaterial = createSourceEffectMaterial(record, pack, { globals: options.shaderGlobals });
     materials.add(baseMaterial);
     let choices;
     if (mode === 4) {
@@ -158,13 +171,16 @@ export function createSourceParticleEffect(key, pack, options = {}) {
       if (!choices.length) { limitations.add(`Skipped ${ref}: source mesh missing; no substitute geometry.`); continue; }
     } else choices = [new THREE.PlaneGeometry(1, 1)];
     for (const g of choices) geometries.add(g);
-    const supported = new Set(['InitialModule', 'ShapeModule', 'EmissionModule', 'SizeModule', 'ColorModule', 'RotationModule', 'VelocityModule', 'ForceModule']);
+    const supported = new Set(['InitialModule', 'ShapeModule', 'EmissionModule', 'SizeModule', 'ColorModule', 'RotationModule', 'VelocityModule', 'ForceModule', 'SizeBySpeedModule', 'NoiseModule']);
+    const collision = modules.CollisionModule;
+    if (collision?.type === 0 && collision.m_Planes.every(p => !p.m_PathID)) supported.add('CollisionModule'); // Empty source plane set: intentionally no collision.
     for (const name of Object.keys(modules)) if (!supported.has(name)) limitations.add(`${ref}: ${name} preserved but not evaluated.`);
     if (modules.ShapeModule && ![0, 1, 2, 3, 4, 5, 7, 10, 11].includes(modules.ShapeModule.type)) limitations.add(`${ref}: unsupported shape ${modules.ShapeModule.type}; emission origin only.`);
     if (recipe.main.moveWithTransform === 2) limitations.add(`${ref}: custom simulation space falls back to local space.`);
     if (recipe.main.prewarm) limitations.add(`${ref}: prewarm is not simulated.`);
-    if (mode === 1) limitations.add(`${ref}: stretched billboard uses source lengthScale and velocityScale; camera motion stretching is omitted.`);
-    const sys = { ref, recipe, modules, initial, renderer, node, choices, baseMaterial, tint, live: [], time: 0,
+    if (mode === 1 && renderer.m_CameraVelocityScale) limitations.add(`${ref}: nonzero camera motion stretching is not evaluated.`);
+    if (modules.NoiseModule) limitations.add(`${ref}: NoiseModule uses source strength/frequency/octaves with browser Perlin curl; native Unity noise seed/permutation/integrator are not bit-exact.`);
+    const sys = { ref, recipe, modules, initial, renderer, node, choices, baseMaterial, live: [], time: 0,
       carry: 0, delay: 0, max: Math.min(initial.maxNumParticles, maxParticles), world: recipe.main.moveWithTransform === 1,
       burstAtZero: false, mode };
     if (initial.maxNumParticles > maxParticles) limitations.add(`${ref}: particle budget ${maxParticles} (source maximum ${initial.maxNumParticles}).`);
@@ -182,7 +198,7 @@ export function createSourceParticleEffect(key, pack, options = {}) {
       const size = sample(initial.startSize), sizes = new THREE.Vector3(size, initial.size3D ? sample(initial.startSizeY) : size, initial.size3D ? sample(initial.startSizeZ) : size);
       const rotation = new THREE.Euler(initial.rotation3D ? sample(initial.startRotationX) : 0, initial.rotation3D ? sample(initial.startRotationY) : 0, sample(initial.startRotation), 'ZXY');
       const g = sys.choices[Math.floor(random() * sys.choices.length)], material = sys.baseMaterial.clone();
-      material.vertexColors = !!g.getAttribute('color'); materials.add(material);
+      materials.add(material);
       const mesh = new THREE.Mesh(g, material); mesh.frustumCulled = false;
       const parent = sys.world ? native : sys.node; parent.add(mesh);
       const position = sampled.position, emitScale = sys.node.getWorldScale(new THREE.Vector3());
@@ -200,7 +216,7 @@ export function createSourceParticleEffect(key, pack, options = {}) {
         velocity.multiply(scale);
       }
       const baseQuaternion = sys.world ? native.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(sys.node.getWorldQuaternion(new THREE.Quaternion())) : new THREE.Quaternion();
-      sys.live.push({ mesh, position, velocity, age: 0, lifetime, seed, sizes, scale, rotation, baseQuaternion, startColor: color(initial.startColor, normalized, seed) });
+      sys.live.push({ mesh, position, velocity, totalVelocity: velocity.clone(), scroll: 0, age: 0, lifetime, seed, sizes, scale, rotation, baseQuaternion, startColor: color(initial.startColor, normalized, seed) });
     }
   }
 
@@ -241,19 +257,35 @@ export function createSourceParticleEffect(key, pack, options = {}) {
       if (force) {
         const v = new THREE.Vector3(sample(force.x), sample(force.y), sample(force.z));
         if (sys.world && !force.inWorldSpace) v.applyMatrix3(new THREE.Matrix3().setFromMatrix4(sys.node.matrixWorld));
-        else if (!sys.world && force.inWorldSpace) v.multiplyScalar(.1).applyMatrix3(inverse);
+        else if (force.inWorldSpace) {
+          v.multiply(new THREE.Vector3(.1, .1, -.1));
+          if (!sys.world) v.applyMatrix3(inverse);
+        }
         acceleration.add(v);
       }
       p.position.addScaledVector(p.velocity, dt).addScaledVector(acceleration, .5 * dt * dt); p.velocity.addScaledVector(acceleration, dt);
+      p.totalVelocity.copy(p.velocity);
       const velocity = modules.VelocityModule;
       if (velocity) {
         const v = new THREE.Vector3(sample(velocity.x), sample(velocity.y), sample(velocity.z));
         if (sys.world && !velocity.inWorldSpace) v.applyMatrix3(new THREE.Matrix3().setFromMatrix4(sys.node.matrixWorld));
-        else if (sys.world) v.multiplyScalar(.1);
-        else if (velocity.inWorldSpace) v.multiplyScalar(.1).applyMatrix3(inverse);
+        else if (sys.world) v.multiply(new THREE.Vector3(.1, .1, -.1));
+        else if (velocity.inWorldSpace) v.multiply(new THREE.Vector3(.1, .1, -.1)).applyMatrix3(inverse);
         p.position.addScaledVector(v, dt);
+        p.totalVelocity.add(v);
       }
-      if (sys.world) p.position.z += scroll;
+      const noise = modules.NoiseModule;
+      if (noise) {
+        const coordinate = p.position.clone();
+        if (sys.world) { coordinate.z -= p.scroll; coordinate.multiply(new THREE.Vector3(10, 10, -10)); }
+        coordinate.z += sample(noise.scrollSpeed) * p.age;
+        const v = particleCurlNoise(coordinate, noise.frequency, noise.octaves, noise.octaveMultiplier, noise.octaveScale);
+        const strength = [noise.strength, noise.separateAxes ? noise.strengthY : noise.strength, noise.separateAxes ? noise.strengthZ : noise.strength].map(c => sample(c));
+        v.multiply(new THREE.Vector3(...strength)).multiplyScalar(sample(noise.positionAmount) * (noise.damping ? noise.frequency : 1));
+        if (sys.world) v.multiply(new THREE.Vector3(.1, .1, -.1));
+        p.position.addScaledVector(v, dt); p.totalVelocity.add(v);
+      }
+      if (sys.world) { p.position.z += scroll; p.scroll += scroll; }
       const rotation = modules.RotationModule;
       if (rotation) {
         p.rotation.z += sample(rotation.curve) * dt;
@@ -269,24 +301,49 @@ export function createSourceParticleEffect(key, pack, options = {}) {
       const size = sys.modules.SizeModule;
       p.mesh.scale.copy(p.sizes).multiply(p.scale);
       if (size) p.mesh.scale.multiply(new THREE.Vector3(sample(size.curve), sample(size.separateAxes ? size.y : size.curve), sample(size.separateAxes ? size.z : size.curve)));
+      const bySpeed = sys.modules.SizeBySpeedModule;
+      if (bySpeed) {
+        const speed = p.totalVelocity.length() * (sys.world ? 10 : 1);
+        const u = clamp((speed - bySpeed.range.x) / Math.max(1e-6, bySpeed.range.y - bySpeed.range.x));
+        const value = curve => evaluateParticleMinMax(curve, u, p.seed, 1);
+        p.mesh.scale.multiply(new THREE.Vector3(value(bySpeed.curve), value(bySpeed.separateAxes ? bySpeed.y : bySpeed.curve), value(bySpeed.separateAxes ? bySpeed.z : bySpeed.curve)));
+      }
       const tint = sys.modules.ColorModule ? color(sys.modules.ColorModule.gradient, t, p.seed) : [1, 1, 1, 1];
-      const rgba = p.startColor.map((v, i) => v * tint[i] * sys.tint[i]);
-      p.mesh.material.color.setRGB(rgba[0], rgba[1], rgba[2]); p.mesh.material.opacity = clamp(rgba[3]);
+      setSourceParticleColor(p.mesh.material, p.startColor.map((v, i) => v * tint[i]));
       p.mesh.quaternion.copy(p.baseQuaternion).multiply(new THREE.Quaternion().setFromEuler(p.rotation));
       if (sys.mode !== 4 && camera) {
-        const parentRotation = p.mesh.parent.getWorldQuaternion(new THREE.Quaternion()).invert();
         const cameraRotation = camera.getWorldQuaternion(new THREE.Quaternion());
         if (sys.mode === 2) cameraRotation.setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
         if (sys.mode === 3) cameraRotation.setFromEuler(new THREE.Euler(0, new THREE.Euler().setFromQuaternion(cameraRotation, 'YXZ').y, 0));
         let rotation = p.rotation.z;
         if (sys.mode === 1) {
-          const v = p.velocity.clone();
+          const v = p.totalVelocity.clone();
           if (!sys.world) v.applyMatrix3(new THREE.Matrix3().setFromMatrix4(sys.node.matrixWorld));
-          v.applyQuaternion(cameraRotation.clone().invert());
-          if (v.x * v.x + v.y * v.y > 1e-8) rotation += Math.atan2(-v.x, v.y);
-          p.mesh.scale.y *= Math.max(1, sys.renderer.m_LengthScale + sys.renderer.m_VelocityScale * p.velocity.length());
+          if (!sys.renderer.m_FreeformStretching && v.lengthSq() > 1e-8) {
+            // Legacy stretched particles lie along their 3D velocity and can
+            // become edge-on to the camera. Keeping the whole quad in the
+            // camera plane is the different freeform-stretching mode.
+            const y = v.normalize(), normal = new THREE.Vector3(0, 0, 1).applyQuaternion(cameraRotation);
+            const x = new THREE.Vector3().crossVectors(y, normal);
+            if (x.lengthSq() < 1e-8) x.set(1, 0, 0).applyQuaternion(cameraRotation);
+            x.normalize(); const z = new THREE.Vector3().crossVectors(x, y).normalize();
+            cameraRotation.setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z));
+          } else {
+            v.applyQuaternion(cameraRotation.clone().invert());
+            if (v.x * v.x + v.y * v.y > 1e-8) rotation += Math.atan2(-v.x, v.y);
+          }
+          // Source grind: velocityScale=0, lengthScale=6.21. Zero means zero
+          // length; do not clamp this to one or add invented speed stretching.
+          p.mesh.scale.y *= Math.max(0, sys.renderer.m_LengthScale + sys.renderer.m_VelocityScale * p.totalVelocity.length() * (sys.world ? 10 : 1));
         }
-        p.mesh.quaternion.copy(parentRotation.multiply(cameraRotation)).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), rotation));
+        const parentScale = p.mesh.parent.getWorldScale(new THREE.Vector3());
+        const worldScale = p.mesh.scale.clone().multiply(parentScale).set(Math.abs(p.mesh.scale.x * parentScale.x), Math.abs(p.mesh.scale.y * parentScale.y), Math.abs(p.mesh.scale.z * parentScale.z));
+        const worldPosition = p.mesh.parent.localToWorld(p.mesh.position.clone());
+        // Keep mirrored source parents out of billboard UV orientation: a
+        // quaternion alone cannot undo the native negative-Z determinant.
+        const worldQuaternion = cameraRotation.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), rotation));
+        const matrix = new THREE.Matrix4().copy(p.mesh.parent.matrixWorld).invert().multiply(new THREE.Matrix4().compose(worldPosition, worldQuaternion, worldScale));
+        matrix.decompose(p.mesh.position, p.mesh.quaternion, p.mesh.scale);
       }
     }
   }
@@ -317,7 +374,7 @@ export function createSourceParticleEffect(key, pack, options = {}) {
       return api;
     },
     get aliveCount() { return systems.reduce((total, s) => total + s.live.length, 0); },
-    dispose() { api.reset(); geometries.forEach(g => g.dispose()); materials.forEach(m => m.dispose()); ownedTextures.forEach(t => t.dispose()); object.removeFromParent(); },
+    dispose() { api.reset(); geometries.forEach(g => g.dispose()); materials.forEach(disposeSourceEffectMaterial); object.removeFromParent(); },
   };
   return api;
 }

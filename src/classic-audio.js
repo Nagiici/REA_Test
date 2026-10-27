@@ -1,10 +1,14 @@
+import { AnimationAudioEvents } from './animation-audio-events.js';
+
 /** Source AudioClip bindings; browser playback/volume is a presentation adapter.
  * Nothing plays before the existing user sound toggle resumes AudioContext. */
 export class ClassicAudio {
-  constructor(data, base = '/assets/recovered/') {
+  constructor(data, base = '/assets/recovered/', animationEvents = null) {
     this.data = data; this.base = base; this.enabled = false;
     this.buffers = new Map(); this.loading = new Map(); this.loops = new Map();
     this.context = null; this.music = null; this.active = false;
+    this.animationEvents = animationEvents ? new AnimationAudioEvents(animationEvents) : null;
+    this.animationHistory = [];
   }
   async enable(enabled) {
     this.enabled = enabled;
@@ -52,6 +56,7 @@ export class ClassicAudio {
     this.loops.clear();
   }
   update(state, events) {
+    if (this.state !== state) { this.state = state; this.animationEvents?.reset(this.lastAnimationSnapshot); this.animationHistory = []; }
     this.active = state.phase === 'intro' || state.phase === 'running' || state.phase === 'reviving';
     if (!this.enabled) return;
     if (state.phase === 'paused' && this.context?.state === 'running') this.context.suspend();
@@ -62,6 +67,9 @@ export class ClassicAudio {
     for (const [event, loop] of this.loops) if (!desired.has(event)) { loop.source?.stop(); this.loops.delete(event); }
     for (const event of desired) this.play(event, true);
     for (const event of events) {
+      // RunnerAnimPlayer installs these on the actual ordinary clip; board
+      // keyframe registration is not yet ported and retains its existing cues.
+      if (this.animationEvents && !state.board.active && ['jump', 'land', 'roll', 'crash'].includes(event.type)) continue;
       const name = event.type === 'lane' ? `${state.board.active ? 'boardDodge' : 'dodge'}${event.direction < 0 ? 'Left' : 'Right'}`
         : event.type === 'land' ? state.board.active ? 'boardLand' : 'landing'
         : event.type === 'roll' ? state.board.active ? 'boardRoll' : 'roll'
@@ -75,5 +83,14 @@ export class ClassicAudio {
       if (event.type === 'crash') this.play(name, false, true);
       else this.play(name);
     }
+  }
+  updateAnimation(state, snapshot) {
+    this.lastAnimationSnapshot = snapshot;
+    if (!this.animationEvents) return;
+    const cues = this.animationEvents.sample(snapshot, { paused: state.phase === 'paused',
+      phase: state.phase, sneakers: state.powerups.sneakers > 0 });
+    for (const cue of cues) this.play(cue.binding, false, true);
+    this.animationHistory.push(...cues);
+    if (this.animationHistory.length > 32) this.animationHistory.splice(0, this.animationHistory.length - 32);
   }
 }

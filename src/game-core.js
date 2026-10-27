@@ -6,6 +6,7 @@ import { makeFlightCoins } from './flight-coins.js';
 import { Hoverboard, HOVERBOARD_BROWSER_ADAPTER } from './hoverboard.js';
 import { DEFAULT_CONFIG } from './config.js';
 import { SourceClassicIntro } from './classic-intro.js';
+import { SourceRollTimeline, runningTransitionFromHeight, rollVerticalSpeed } from './classic-motion.js';
 import { POWERUP_SECONDS, POWERUP_NAMES, SNEAKERS, curveValue, touchesPowerup } from './powerups.js';
 
 const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
@@ -84,6 +85,7 @@ export class RunnerGame {
       speed: this.config.initialSpeed, elapsed: 0,
       player: { lane: 1, x: 0, y: 0, velocityY: 0, rollRemaining: 0, rollToken: 0,
         isJumping: false, isFalling: false, lastGroundedY: 0, inAirJump: false, jumpHeight: this.config.jumpHeight,
+        transitionFromHeight: false,
         grounded: true, floor: 0, laneFrom: 0, laneElapsed: 0, laneDuration: 0 },
       collision: null, reaction: null, pausedFrom: null, catchRemaining: 0,
     };
@@ -95,6 +97,8 @@ export class RunnerGame {
     this.revival = new ClassicRevive({ localCredits: this.config.localRevives });
     this.state.revival = this.revival.state;
     this.reactionSerial = 0;
+    this.rollTimeline = new SourceRollTimeline();
+    this.rollAnimation = null;
     this.lastStumbleContact = null;
     this.contacts = new Set();
     this.ceiling = { hit: false, minY: 0, evaded: false };
@@ -147,7 +151,9 @@ export class RunnerGame {
       p.laneElapsed = 0;
       p.laneDuration = Math.abs((next - 1) - p.x / this.config.laneSpacing) * this.laneChangeSeconds;
       p.lane = next;
-      this.events.push({ type: 'lane', lane: next, direction: action === 'left' ? -1 : 1, duration: p.laneDuration });
+      this.events.push({ type: 'lane', lane: next, direction: action === 'left' ? -1 : 1, duration: p.laneDuration,
+        motion: { grounded: p.grounded, jumping: p.isJumping, flying: !!this.state.flight,
+          hoverboard: this.state.board.active, speedNormalized: this.state.speed / 11 } });
       return true;
     }
     // Character.Jump 81949 accepts a brief step-off while not already jumping.
@@ -157,7 +163,7 @@ export class RunnerGame {
       return false;
     }
     if (action === 'jump') {
-      p.rollRemaining = 0;
+      this.endRoll('jump');
       p.inAirJump = false; p.isJumping = true; p.isFalling = false;
       p.jumpHeight = this.state.powerups.sneakers > 0 ? SNEAKERS.height : this.config.jumpHeight;
       p.velocityY = Math.sqrt(2 * this.config.gravity * this.config.jumpHeight);
@@ -166,17 +172,20 @@ export class RunnerGame {
         p.sneakersJump = { startY: p.y, startDistance: this.state.distance,
           length: 2 * this.state.speed * Math.sqrt(2 * SNEAKERS.height * this.config.gravity) / this.config.gravity * SNEAKERS.apexRatio };
       }
-      this.events.push({ type: 'jump', height: p.jumpHeight });
+      this.events.push({ type: 'jump', height: p.jumpHeight, normalJumpHeight: this.config.jumpHeight });
       return true;
     }
     if (action === 'roll') {
       if (p.rollRemaining > 0) return false;
       p.sneakersJump = null;
       p.inAirJump = false;
-      p.velocityY = -Math.sqrt(2 * this.config.gravity * p.jumpHeight);
+      p.velocityY = rollVerticalSpeed({ gravityNative: this.config.gravity * 10, jumpHeightNative: p.jumpHeight * 10,
+        transitionFromHeight: p.transitionFromHeight,
+        routeRelativeHeightNative: Number.isFinite(p.routeRelativeY) ? p.routeRelativeY * 10 : null }) * .1;
       p.rollRemaining = this.state.board.active ? this.config.boardRollSeconds : this.config.rollSeconds;
       p.rollToken++;
-      this.events.push({ type: 'roll', token: p.rollToken });
+      this.rollTimeline.begin(p.rollRemaining); this.rollAnimation = null;
+      this.events.push({ type: 'roll', token: p.rollToken, hoverboard: this.state.board.active });
       return true;
     }
     return false;
@@ -185,6 +194,26 @@ export class RunnerGame {
   get laneChangeSeconds() {
     return this.state.flight ? 6 / this.state.speed
       : this.config.laneChangeSeconds ?? this.config.laneChangeDistance / this.state.speed;
+  }
+
+  /** Renderer feedback is queued and consumed only at the next fixed step.
+   * A stale outgoing action cannot terminate a newer accepted roll. */
+  updateAnimationState(snapshot) {
+    const roll = snapshot?.roll, p = this.state.player;
+    if (p.rollRemaining > 0 && roll?.token === p.rollToken && typeof roll.enabled === 'boolean')
+      this.rollAnimation = { token: roll.token, enabled: roll.enabled, rawLength: roll.rawLength };
+  }
+
+  endRoll(reason) {
+    const p = this.state.player, active = p.rollRemaining > 0;
+    p.rollRemaining = 0; this.rollTimeline.active = false; this.rollAnimation = null;
+    if (active) this.events.push({ type: 'roll-end', token: p.rollToken, reason });
+  }
+
+  enterRunningFromHeight() {
+    const p = this.state.player;
+    p.transitionFromHeight = runningTransitionFromHeight(p.y * 10);
+    p.lastGroundedY = p.y; // Running.Begin sets this even while still airborne.
   }
 
   get hasActiveClock() {
@@ -251,7 +280,8 @@ export class RunnerGame {
         // The native Revive launch is retained. Moving a browser gap fall to
         // the cleared floor is an explicit coordinate/geometry adapter.
         p.y = Math.max(0, p.y); p.velocityY = Math.sqrt(2 * c.gravity * event.jumpHeightNative * .1);
-        p.grounded = false; p.isJumping = true; p.inAirJump = false; p.rollRemaining = 0; p.sneakersJump = null;
+        this.endRoll('revive');
+        p.grounded = false; p.isJumping = true; p.inAirJump = false; p.sneakersJump = null;
         p.laneFrom = p.x; p.laneElapsed = 0;
         p.laneDuration = Math.abs((p.lane - 1) - p.x / c.laneSpacing) * this.laneChangeSeconds;
         s.collision = null; s.reaction = null; s.phase = 'running';
@@ -269,7 +299,8 @@ export class RunnerGame {
     this.state.stumble = this.collisionState.snapshot();
     if (outcome.stumbled) {
       if (!options.bush) this.lastStumbleContact = { entity: options.collider ?? null, at: this.state.elapsed };
-      this.setReaction(name, duration); this.events.push({ type: 'stumble', animation: name, reason: outcome.reason }); }
+      this.setReaction(name, duration); this.events.push({ type: 'stumble', animation: name, reason: outcome.reason,
+        horizontal: options.horizontal, vertical: options.vertical, critical: options.animationCritical }); }
     if (outcome.fatal) this.fatalHit({ type: 'critical-hit' });
     return outcome;
   }
@@ -280,10 +311,11 @@ export class RunnerGame {
     s.phase = 'gameover';
     s.collision = { id: entity.id, type: entity.type, distance: s.distance };
     this.setReaction(animation, undefined);
-    // The browser renderer enables the source OnCatchPlayer delay only when
-    // its paired chaser/character presentation is installed. Moving-train
-    // deaths are a separate source path and do not inherit this callback delay.
-    s.catchRemaining = animation === 'death_moving_train' ? 0 : this.config.catchPresentationSeconds ?? 0;
+    // Game's constructor defaults waitTimeBeforeScreen to 3 seconds, and
+    // OnCatchPlayer writes the same serialized reviveWaitTime. The browser
+    // uses this configured presentation window for its local revive UI;
+    // native popup queue/input scheduling is not reproduced exactly.
+    s.catchRemaining = this.config.catchPresentationSeconds ?? 0;
     if (!s.catchRemaining) this.revival.offer();
     this.events.push({ type: 'crash', obstacle: entity.type, animation });
     return true;
@@ -306,6 +338,7 @@ export class RunnerGame {
       const flight = this.jetpack.step(dt, { distance: previousDistance });
       if (!flight.active) {
         s.flight = null; delete s.powerups.jetpack; p.velocityY = 0;
+        this.enterRunningFromHeight();
         this.events.push({ type: 'powerup-end', powerup: 'jetpack' });
       } else { s.flight = flight; s.powerups.jetpack = Math.max(0, flight.timeLeft); }
     }
@@ -320,7 +353,8 @@ export class RunnerGame {
         s.reaction = null; this.contacts.clear(); this.lastStumbleContact = null;
         // Browser gap recovery: removed gap geometry supplies a safe floor.
         p.y = Math.max(0, p.y); p.velocityY = Math.sqrt(2 * c.gravity * event.jumpHeightNative * 0.1);
-        p.grounded = false; p.isJumping = true; p.inAirJump = false; p.rollRemaining = 0; p.sneakersJump = null;
+        this.endRoll('board-revive');
+        p.grounded = false; p.isJumping = true; p.inAirJump = false; p.sneakersJump = null;
       }
       this.events.push({ ...event, type: `board-${event.type}` });
     }
@@ -333,7 +367,13 @@ export class RunnerGame {
     p.laneElapsed += dt;
     const blend = clamp(p.laneElapsed / Math.max(dt, p.laneDuration), 0, 1);
     p.x = p.laneFrom + ((p.lane - 1) * c.laneSpacing - p.laneFrom) * blend;
-    p.rollRemaining = Math.max(0, p.rollRemaining - dt);
+    if (p.rollRemaining > 0) {
+      const feedback = this.rollAnimation;
+      if (Number.isFinite(feedback?.rawLength) && feedback.rawLength > 0) this.rollTimeline.length = feedback.rawLength;
+      if (this.rollTimeline.step(dt, { enabled: feedback?.enabled ?? true }))
+        this.endRoll(feedback?.enabled === false ? 'animation-disabled' : 'clip-length');
+      else p.rollRemaining = Math.max(0, this.rollTimeline.length - this.rollTimeline.elapsed);
+    }
     const previousY = p.y;
     if (s.flight) {
       p.y = s.flight.y; p.velocityY = 0; p.grounded = false;
@@ -352,7 +392,7 @@ export class RunnerGame {
       p.y = floor;
       p.velocityY = 0;
       p.grounded = true;
-      p.isJumping = false; p.isFalling = false; p.lastGroundedY = floor;
+      p.isJumping = false; p.isFalling = false; p.lastGroundedY = floor; p.transitionFromHeight = false;
       this.ceiling = { hit: false, minY: 0, evaded: true };
       if (p.inAirJump) this.action('jump');
     } else p.grounded = false;
@@ -450,7 +490,8 @@ export class RunnerGame {
               : action.horizontal.startsWith('Right') ? 'stumble_right'
               : action.vertical === 'Lower' ? 'stumble_low' : 'stumble_mix';
             this.stumble(name, name === 'stumble_left' ? .416667 : name === 'stumble_low' ? .625 : .833334,
-              { collider: e, bush: action.stumbleType === 'Bush', safe: action.safe });
+              { collider: e, bush: action.stumbleType === 'Bush', safe: action.safe,
+                horizontal: action.horizontal, vertical: action.vertical, animationCritical: action.critical });
           }
           if (action.type === 'hitByTrain') movingHit = true;
           if (action.type === 'criticalHit') {
@@ -508,7 +549,8 @@ export class RunnerGame {
       const target = this.routeGenerator?.scheduleJetpackLanding?.(flight.targetZ, this.nextSection, s.levelSpeed * Math.sqrt(2 * 9.5 / this.config.gravity) + this.config.playerRadius + s.levelSpeed * this.config.fixedStep * 2);
       if (target != null) flight = this.jetpack.begin({ distance: s.distance, y: p.y, levelSpeed: s.levelSpeed, minimumTargetZ: target });
       s.flight = flight; s.speed = flight.speed; s.powerups.jetpack = flight.timeLeft;
-      p.sneakersJump = null; p.rollRemaining = 0; p.grounded = false; p.velocityY = 0;
+      this.endRoll('jetpack');
+      p.sneakersJump = null; p.grounded = false; p.velocityY = 0;
       this.hoverboard.state.flying = true;
       const start = flight.coinStartDistance;
       for (const coin of makeFlightCoins({ start, length: Math.max(0, flight.coinLength), height: 9.5, random: this.random }).coins) this.addEntity(coin);

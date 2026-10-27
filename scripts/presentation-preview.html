@@ -1,17 +1,17 @@
 <!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>经典开场与特效回归</title>
-<style>body{margin:0;background:#123839;color:#eaf1da;font:13px system-ui}iframe{display:block;margin:auto;border:0;width:100%;height:calc(100dvh - 115px)}body.portrait iframe{width:390px}nav{padding:10px;display:flex;flex-wrap:wrap;gap:7px}button{padding:7px 12px;background:#e9efce;border:0;border-radius:6px;color:#143e3c}output{display:block;padding:0 12px;white-space:pre-wrap;font-size:12px}</style>
+<style>body{margin:0;background:#123839;color:#eaf1da;font:13px system-ui}iframe{display:block;margin:auto;border:0;width:100%;height:calc(100dvh - 155px)}body.portrait iframe{width:390px}nav{padding:10px;display:flex;flex-wrap:wrap;gap:7px}button{padding:7px 12px;background:#e9efce;border:0;border-radius:6px;color:#143e3c}output{display:block;padding:0 12px;white-space:pre-wrap;font-size:12px}</style>
 <iframe src="/" title="经典模式验证"></iframe>
-<nav><button id="menu">菜单</button><button id="intro">开场定格</button><button id="run">完整开跑</button><button id="coin">金币闪光</button><button id="jump">普通跳跃</button><button id="roof">车顶镜头</button><button id="shoes">跑鞋高跳</button><button id="board">滑板碰撞</button><button id="flight">喷气飞行</button><button id="dizzy">碰撞星星</button><button id="roll">连续翻滚</button><button id="pause">暂停／继续</button><button id="portrait">横／竖屏</button></nav>
+<nav><button id="menu">菜单</button><button id="paint-on">喷漆开启</button><button id="paint-off">喷漆停止</button><button id="roll-lane">滚动接换道</button><button id="jump-roll">跳跃接翻滚</button><button id="train-hit">列车受击</button><button id="train-close">近身列车受击</button><button id="revive-start">复活粒子</button><button id="revive-shield">复活护盾</button><button id="intro">开场定格</button><button id="run">完整开跑</button><button id="coin">金币闪光</button><button id="jump">普通跳跃</button><button id="roof">车顶镜头</button><button id="shoes">跑鞋高跳</button><button id="board">滑板碰撞</button><button id="flight">喷气飞行</button><button id="dizzy">碰撞星星</button><button id="roll">连续翻滚</button><button id="pause">暂停／继续</button><button id="portrait">横／竖屏</button></nav>
 <output id="status">等待游戏资源…</output>
 <script type="module">
 const frame=document.querySelector('iframe'),out=document.querySelector('#status');let r,route,jobs=[],failure=[];
 function clearJobs(){jobs.forEach(clearTimeout);jobs=[];}
 const later=(fn,ms)=>jobs.push(setTimeout(fn,ms));
-function reset(intro=false){clearJobs();const g=r.game;g.routeGenerator=route;g.reset();g.routeGenerator=null;g.entities=g.entities.filter(e=>e.type==='decoration'&&(e.provenance?.environment||/track/i.test(e.visual?.prefabKey??e.visual?.meshKey??'')));g.nextSection=1e9;if(intro)frame.contentDocument.querySelector('#start').click();else{const options=g.introOptions;g.introOptions=null;g.start();g.introOptions=options;}return g;}
+function reset(intro=false){clearJobs();const g=r.game;g.routeGenerator=route;g.reset();g.routeGenerator=null;g.entities=g.entities.filter(e=>e.type==='decoration'&&(e.provenance?.environment||/track/i.test(e.visual?.prefabKey??e.visual?.meshKey??'')));g.nextSection=1e9;if(intro)frame.contentDocument.querySelector('#start').click();else{const options=g.introOptions;g.introOptions=null;g.start();g.state.distance=80;g.introOptions=options;}return g;}
 const stopAfter=ms=>later(()=>r.game.pause(),ms);
 frame.addEventListener('load',()=>{frame.contentWindow.addEventListener('error',e=>failure.push(e.message));const style=frame.contentDocument.createElement('style');style.textContent='#menu{visibility:hidden}';frame.contentDocument.head.append(style);});
 setInterval(()=>{if(!r&&frame.contentWindow.__runner?.ready){r=frame.contentWindow.__runner;route=r.game.routeGenerator;}if(!r)return;const s=r.game.state,c=r.cameraController.snapshot(),fx=r.effects.stats;
-out.textContent=`本地确定性场景验证（障碍已隔离） · ${s.phase}${s.pausedFrom?' / '+s.pausedFrom:''} · intro ${s.intro?.elapsed.toFixed(3)??'无'} · elapsed ${s.elapsed.toFixed(3)} · distance ${s.distance.toFixed(2)} · guard ${s.stumble.guardDistanceNative.toFixed(1)} / ${s.stumble.timeLeft.toFixed(2)}s\n相机 ${c.position.map(x=>x.toFixed(2)).join(', ')} · FOV ${c.fov.toFixed(2)} · ${c.mode} · y ${s.player.y.toFixed(2)} / grounded ${s.player.grounded} · 动作 ${r.character.animationNames.length} · 粒子 ${JSON.stringify(fx.activeParticles)} · 闪光 ${fx.coin?.visible} · draw ${r.renderer.info.render.calls} · 错误 ${[...failure,...r.errors].join('|')||0}`;},100);
+out.textContent=`本地确定性场景验证（障碍已隔离） · ${s.phase}${s.pausedFrom?' / '+s.pausedFrom:''} · intro ${s.intro?.elapsed.toFixed(3)??'无'} · elapsed ${s.elapsed.toFixed(3)} · distance ${s.distance.toFixed(2)} · guard ${s.stumble.guardDistanceNative.toFixed(1)} / ${s.stumble.timeLeft.toFixed(2)}s\n相机 ${c.position.map(x=>x.toFixed(2)).join(', ')} · FOV ${c.fov.toFixed(2)} · ${c.mode} · y ${s.player.y.toFixed(2)} / grounded ${s.player.grounded} · 动作 ${r.character.animationNames.length} · 粒子 ${JSON.stringify(fx.activeParticles)} · 闪光 ${fx.coin?.visible} · draw ${r.renderer.info.render.calls} · 喷漆 ${r.introProps?.timeline.sample().sprayEmitting} / ${r.introProps?.particles.aliveCount??0} · 护盾 ${JSON.stringify(fx.reviveShield)} · train ${JSON.stringify(r.trainPresentation)} · roll ${s.player.rollRemaining.toFixed(3)} · 声音帧 ${r.audio.animationHistory?.slice(-4).map(e=>e.animation+':'+e.frame).join(',')??''} · 错误 ${[...failure,...r.errors].join('|')||0}`;},100);
 document.querySelector('#menu').onclick=()=>{clearJobs();r.game.routeGenerator=route;r.game.reset();};
 document.querySelector('#intro').onclick=()=>{reset(true);stopAfter(650);};
 document.querySelector('#run').onclick=()=>{reset(true);stopAfter(2300);};
@@ -23,6 +23,17 @@ document.querySelector('#board').onclick=()=>{const g=reset();g.action('board');
 document.querySelector('#flight').onclick=()=>{const g=reset();g.activatePowerup('jetpack');stopAfter(2600);};
 document.querySelector('#dizzy').onclick=()=>{const g=reset();g.stumble('stumble_left');stopAfter(900);};
 document.querySelector('#roll').onclick=()=>{const g=reset();for(let i=0;i<30;i++)later(()=>g.action('roll'),i*130);stopAfter(3700);};
+
+function menuScene(ms){clearJobs();r.game.routeGenerator=route;r.game.reset();r.introProps.reset();r.character.setAnimation('idle_paint',undefined,performance.now(),{fade:0});later(()=>{r.game.state.pausedFrom='ready';r.game.state.phase='paused';},ms);}
+document.querySelector('#paint-on').onclick=()=>menuScene(400);
+document.querySelector('#paint-off').onclick=()=>menuScene(1100);
+document.querySelector('#roll-lane').onclick=()=>{const g=reset();later(()=>g.action('roll'),100);later(()=>g.action('left'),200);stopAfter(470);};
+document.querySelector('#jump-roll').onclick=()=>{const g=reset();later(()=>g.action('jump'),100);later(()=>g.action('roll'),350);stopAfter(630);};
+document.querySelector('#train-hit').onclick=()=>{const g=reset();later(()=>g.fatalHit({type:'train'},'death_moving_train'),200);stopAfter(550);};
+document.querySelector('#train-close').onclick=()=>{const g=reset();g.stumble();later(()=>g.fatalHit({type:'train'},'death_moving_train'),200);stopAfter(1300);};
+function reviveScene(stopMs){const g=reset();later(()=>g.fatalHit({type:'barrier'}),100);later(()=>g.revive(),3300);stopAfter(stopMs);}
+document.querySelector('#revive-start').onclick=()=>reviveScene(3350);
+document.querySelector('#revive-shield').onclick=()=>reviveScene(4450);
 document.querySelector('#pause').onclick=()=>r.game.pause();
 document.querySelector('#portrait').onclick=()=>document.body.classList.toggle('portrait');
 </script></html>

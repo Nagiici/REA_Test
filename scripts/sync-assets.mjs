@@ -17,6 +17,12 @@ const flightPatch = JSON.parse(await fs.readFile(path.join(flightPatchSource, 'm
 const classicPatch = JSON.parse(await fs.readFile(path.join(classicPatchSource, 'manifest.patch.json'), 'utf8'));
 const audioMotionPatch = JSON.parse(await fs.readFile(path.join(audioMotionPatchSource, 'manifest.patch.json'), 'utf8'));
 const presentationPatch = JSON.parse(await fs.readFile(path.join(presentationPatchSource, 'manifest.patch.json'), 'utf8'));
+const presentationUpdates = [];
+for (const name of ['intro-v4', 'effects-v4', 'audio-v4', 'revive-v4']) {
+  const directory = path.resolve(project, `../analysis/classic/${name}/runtime-assets-patch`);
+  try { presentationUpdates.push({ directory, patch: JSON.parse(await fs.readFile(path.join(directory, 'manifest.patch.json'), 'utf8')) }); }
+  catch (error) { if (error.code !== 'ENOENT') throw error; }
+}
 await fs.mkdir(destination, { recursive: true });
 for (const name of await fs.readdir(source)) {
   if (!/\.(json|png)$/i.test(name)) continue;
@@ -27,7 +33,7 @@ for (const name of await fs.readdir(source)) {
     await fs.writeFile(path.join(destination, name), JSON.stringify(manifest));
   } else await fs.copyFile(path.join(source, name), path.join(destination, name));
 }
-for (const directory of [patchSource, flightPatchSource, classicPatchSource, audioMotionPatchSource, presentationPatchSource]) {
+for (const directory of [patchSource, flightPatchSource, classicPatchSource, audioMotionPatchSource, presentationPatchSource, ...presentationUpdates.map(p => p.directory)]) {
   for (const name of await fs.readdir(directory)) {
     if (!/\.(json|png|wav|m4a|ogg)$/i.test(name) || name === 'manifest.patch.json') continue;
     await fs.copyFile(path.join(directory, name), path.join(destination, name));
@@ -70,6 +76,24 @@ if (presentationPatch.audioAdditions) {
   audio.limitations = audio.limitations.filter(text => !text.startsWith('CoinPool/CoinManager/Coin serialized'));
   audio.coinSourceResolution = 'CharacterPickupParticles.CoinPickup supplies the exact coin clip and pitch/volume ranges; presentation-v3 closes the earlier bounded-search gap.';
   await fs.writeFile(audioPath, JSON.stringify(audio));
+}
+for (const { patch: update } of presentationUpdates) {
+  for (const key of ['meshes', 'textures', 'prefabs', 'animations']) Object.assign(manifest[key] ??= {}, update[key] ?? {});
+  for (const key of ['classicIntroProps', 'classicAudioEvents', 'classicReviveEffect']) if (update[key]) manifest[key] = update[key];
+  if (update.classicPresentationAdditions) {
+    const filename = path.join(destination, manifest.classicPresentation);
+    const data = JSON.parse(await fs.readFile(filename, 'utf8'));
+    for (const [key, additions] of Object.entries(update.classicPresentationAdditions)) Object.assign(data[key] ??= {}, additions);
+    await fs.writeFile(filename, JSON.stringify(data));
+  }
+  if (update.audioAdditions) {
+    const filename = path.join(destination, manifest.classicAudio);
+    const data = JSON.parse(await fs.readFile(filename, 'utf8'));
+    Object.assign(data.clips, update.audioAdditions.clips ?? {});
+    Object.assign(data.bindings, update.audioAdditions.bindings ?? {});
+    Object.assign(manifest.audioClips ??= {}, update.audioAdditions.clips ?? {});
+    await fs.writeFile(filename, JSON.stringify(data));
+  }
 }
 await fs.writeFile(manifestPath, JSON.stringify(manifest));
 // The public manifest omits the local APK path, so hash the actual public bytes.
