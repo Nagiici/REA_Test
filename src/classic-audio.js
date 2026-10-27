@@ -52,7 +52,7 @@ export class ClassicAudio {
     this.loops.clear();
   }
   update(state, events) {
-    this.active = state.phase === 'running' || state.phase === 'reviving';
+    this.active = state.phase === 'intro' || state.phase === 'running' || state.phase === 'reviving';
     if (!this.enabled) return;
     if (state.phase === 'paused' && this.context?.state === 'running') this.context.suspend();
     else if (state.phase !== 'paused' && this.context?.state === 'suspended') this.context.resume();

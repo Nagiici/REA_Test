@@ -12,3 +12,6 @@
 @media(max-width:600px){.board-button{font-size:11px;padding:9px 10px}}
 
 .revive-button{display:block;width:290px;max-width:100%;height:48px;border-radius:8px;background:#dcebd2;color:#173e3b;font-size:15px;font-weight:700;margin-bottom:8px}.revive-button[hidden],#revive-note[hidden]{display:none}#revive-note{display:block;font-size:10px;color:#e1ead7;margin-bottom:18px}#chase-status{border-color:#f4ba6d;color:#ffe3ac}#chase-status progress::-webkit-progress-value{background:#f4ba6d}
+
+/* Menu and results own their scores; keep HUD out of the title area. */
+body.menu-open .scoreboard { visibility: hidden; }

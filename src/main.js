@@ -9,6 +9,10 @@ import { JETPACK_SECONDS } from './jetpack.js';
 import { createChaserPresentation } from './chaser-presentation.js';
 import { PlayerMotion } from './player-motion.js';
 import { ClassicAudio } from './classic-audio.js';
+import { ClassicCamera, classicCameraFov } from './classic-camera.js';
+import { ClassicCameraVolumes } from './classic-camera-volumes.js';
+import { SourceCameraRig } from './source-camera-rig.js';
+import { createClassicEffects } from './classic-effects.js';
 import './style.css';
 
 const $ = id => document.getElementById(id);
@@ -34,6 +38,9 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xb1d9d4);
 scene.fog = new THREE.Fog(0xb1d9d4, 42, 125);
 const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 190);
+const cameraController = new ClassicCamera({ aspect: innerWidth / innerHeight });
+const cameraVolumes = new ClassicCameraVolumes();
+let introRig = null, introStage = null, effects = null, presentationTime = 0, cameraState = null;
 const ambient = new THREE.HemisphereLight(0xf2ffef, 0x46605e, 2.2);
 scene.add(ambient);
 const sun = new THREE.DirectionalLight(0xffedc2, 2.4);
@@ -95,7 +102,9 @@ function installCharacter(next) {
   if (pack) {
     const boardParent = character.native.getObjectByName('SourceBoardAttachment');
     const spine = character.native.getObjectByName('LowerSpine_jnt');
-    equipment = { board: pack.clonePrefab('hoverboard_default'), jetpack: pack.clonePrefab('wearable_jetpack') };
+    equipment = { board: pack.clonePrefab('hoverboard_default'), jetpack: pack.clonePrefab('wearable_jetpack'), spray: pack.clonePrefab('intro_spray_can') };
+    const hand = character.native.getObjectByName('R_Hand_jnt');
+    if (hand && equipment.spray) { equipment.spray.children[0].scale.setScalar(.08); hand.add(equipment.spray); }
     if (boardParent) { equipment.board.children[0].scale.setScalar(.08); boardParent.add(equipment.board); }
     else { equipment.board.position.y = .05; character.object.add(equipment.board); }
     if (spine) {
@@ -113,13 +122,16 @@ function installCharacter(next) {
   window.__runner.character = character;
 }
 
-window.__runner = { game, renderer, scene, camera, pack: null, character: null, ready: false, errors: [],
+window.__runner = { game, renderer, scene, camera, cameraController, cameraVolumes, pack: null, character: null, ready: false, errors: [],
   snapshot: () => ({ phase: game.state.phase, distance: game.state.distance, player: { ...game.state.player }, entities: game.entities.length, character: character?.name, animations: character?.animationNames, drawCalls: renderer.info.render.calls }),
 };
 
 Promise.all([loadRecoveredPack(undefined, { includeChasers: false }), loadYellowCharacter(), loadRedNoseChaser()]).then(([result, yellowCharacter, redNose]) => {
   pack = result; window.__runner.pack = result;
   playerMotion = new PlayerMotion(result.classicMotionPools); gameAudio = new ClassicAudio(result.classicAudio);
+  introRig = new SourceCameraRig(result.classicPresentation.introGraph);
+  introStage = result.clonePrefab(result.manifest.introStage.prefabKey); scene.add(introStage);
+  effects = createClassicEffects(result); scene.add(effects.object); window.__runner.effects = effects;
   window.__runner.audio = gameAudio;
   if (!result.routeLibrary || !result.environmentBindings) throw new Error('原版关卡数据尚未就绪');
   const source = new SourceRouteGenerator(result.routeLibrary, { seed: game.config.seed });
@@ -128,6 +140,7 @@ Promise.all([loadRecoveredPack(undefined, { includeChasers: false }), loadYellow
   chasers = createChaserPresentation({ guard: redNose }, { bindings: result.classicBindings, sourceActors: result.manifest.chaserActors, additions: result.manifest.guardAnimationAdditions }); scene.add(chasers.object);
   window.__runner.chasers = chasers;
   installCharacter(yellowCharacter); loaded = true; window.__runner.ready = true;
+  updateMenu();
   $('start').disabled = false; $('start-label').textContent = '开始奔跑';
 }).catch(error => {
   console.error(error); window.__runner.errors.push(error.message);
@@ -148,7 +161,13 @@ let soundEnabled = false;
 function start() {
   if (!loaded || game.state.phase !== 'paused' && game.state.catchRemaining > 0) return;
   if (game.state.phase === 'paused') game.pause();
-  else { if (game.state.phase === 'gameover') { for (const object of entityObjects.values()) entityRoot.remove(object); entityObjects.clear(); } game.start(); }
+  else {
+    if (game.state.phase === 'gameover') { for (const object of entityObjects.values()) entityRoot.remove(object); entityObjects.clear(); }
+    const fov = classicCameraFov(camera.aspect);
+    game.introOptions = { introDuration: pack.manifest.introAnimationAdditions.clips.intro_run.duration,
+      startFov: fov.menu, runningFov: fov.runningField, aspect: camera.aspect };
+    game.start();
+  }
   if (soundEnabled) gameAudio.enable(true); canvas.focus();
 }
 $('start').addEventListener('click', start);
@@ -192,7 +211,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden && gam
 $('import-character').addEventListener('click', () => $('character-file').click());
 $('character-file').addEventListener('change', async event => {
   const file = event.target.files?.[0]; if (!file) return;
-  if (game.state.phase === 'running') game.pause();
+  if (game.hasActiveClock) game.pause();
   $('import-character').disabled = true; toast('正在读取角色…');
   try {
     const next = await characterFromGLB(await file.arrayBuffer());
@@ -204,11 +223,12 @@ $('character-file').addEventListener('change', async event => {
 
 function updateMenu() {
   const phase = game.state.phase;
-  const running = phase === 'running' || phase === 'reviving' || phase === 'gameover' && game.state.catchRemaining > 0;
+  const running = phase === 'intro' || phase === 'running' || phase === 'reviving' || phase === 'gameover' && game.state.catchRemaining > 0;
   $('menu').classList.toggle('hidden', running);
   $('menu').inert = running;
   $('menu').setAttribute('aria-hidden', String(running));
   document.body.classList.toggle('playing', phase === 'running');
+  document.body.classList.toggle('menu-open', !running);
   $('pause').innerHTML = phase === 'paused' ? '▶' : '<span class="pause-glyph">Ⅱ</span>';
   $('pause').setAttribute('aria-label', phase === 'paused' ? '继续游戏' : '暂停游戏');
   if (phase === 'gameover') {
@@ -225,20 +245,26 @@ function updateMenu() {
     $('menu-title').innerHTML = '稍作停留，<br><em>继续前进。</em>';
     $('menu-description').textContent = '按 P 或点击下方按钮继续。';
     $('result').hidden = true; $('start-label').textContent = '继续';
+  } else if (phase === 'ready') {
+    $('menu-title').innerHTML = '下一站，<br><em>全速前进。</em>';
+    $('menu-description').textContent = '躲开列车，跃过路障，沿着金币奔跑。';
+    $('result').hidden = true; $('start-label').textContent = '开始奔跑';
   }
 }
 
 function resize() {
   const width = innerWidth, height = innerHeight;
   renderer.setSize(width, height, false); camera.aspect = width / height;
-  camera.fov = width < 700 ? 59 : 48; camera.updateProjectionMatrix();
+  const fov = cameraController.setAspect(camera.aspect);
+  camera.fov = game.state.phase === 'ready' ? fov.menu : fov.running; camera.updateProjectionMatrix();
 }
 window.addEventListener('resize', resize); resize();
 const lookTarget = new THREE.Vector3();
 function frame(now) {
   const dt = Math.min(0.1, Math.max(0, (now - previousTime) / 1000)); previousTime = now;
   game.advance(dt);
-  const s = game.state, p = s.player, time = now / 1000;
+  const s = game.state, p = s.player;
+  if (s.phase !== 'paused') presentationTime += dt;
   if (s.phase !== previousPhase || !!s.catchRemaining !== previousCatch) { updateMenu(); previousPhase = s.phase; previousCatch = !!s.catchRemaining; }
   const reviveOffered = s.phase === 'gameover' && s.revival.phase === 'offered';
   $('revive').hidden = !reviveOffered;
@@ -271,31 +297,54 @@ function frame(now) {
     if (event.type === 'powerup') toast(`${POWERUP_NAMES[event.powerup]} · ${Math.ceil(event.duration)}秒`);
   }
   if (loaded) {
-    updateEntities(time);
+    // Static original opening set stays at world origin as the course scrolls.
+    introStage.position.z = s.distance; introStage.visible = s.distance < 50;
+    updateEntities(presentationTime);
     chasers.update(s, dt, events);
   }
   if (character) {
     character.object.position.set(p.x, p.y, 0);
     const lean = Math.max(-0.13, Math.min(0.13, ((p.lane - 1) * game.config.laneSpacing - p.x) * -0.16));
-    character.object.rotation.z = THREE.MathUtils.damp(character.object.rotation.z, lean, 12, dt);
-    const motion = playerMotion.select(s, events, character);
+    if (s.phase !== 'paused') character.object.rotation.z = THREE.MathUtils.damp(character.object.rotation.z, lean, 12, dt);
+    const displayPhase = s.phase === 'paused' ? s.pausedFrom : s.phase;
+    const motion = displayPhase === 'ready' ? { name: 'idle_paint', fade: .2 }
+      : displayPhase === 'intro' ? { name: 'intro_run', token: s.intro, fade: .2 }
+      : playerMotion.select(s, events, character);
     if (chasers?.catchAvatar) {
       const caught = chasers.catchAvatar;
       character.setCatchAnimation?.(caught.name, Math.max(0, caught.time - (s.phase === 'paused' ? 0 : dt)), caught.weight, caught.token);
     } else {
-      character.setAnimation(motion.name, motion.duration, motion.token ?? null, { fade: motion.fade });
+      character.setAnimation(motion.name, motion.duration, displayPhase === 'intro' ? 'intro' : motion.token ?? null, { fade: motion.fade });
       if (motion.speed != null) character.setTimeScale?.(motion.speed);
     }
-    if (equipment) { equipment.board.visible = game.hoverboard.visible; equipment.jetpack.visible = !!s.flight; }
-    if (['running','ready','gameover','reviving'].includes(s.phase)) character.mixer.update(dt * (s.phase === 'ready' ? 0.5 : 1));
+    if (equipment) { equipment.board.visible = game.hoverboard.visible; equipment.jetpack.visible = !!s.flight; if (equipment.spray) equipment.spray.visible = displayPhase === 'ready'; }
+    if (s.phase !== 'paused') character.mixer.update(dt);
   }
-  const menuView = s.phase === 'ready' && innerWidth > 800;
-  const targetX = menuView ? -3.2 : p.x * 0.12;
-  camera.position.x = THREE.MathUtils.damp(camera.position.x, targetX, 3, dt);
-  camera.position.y = THREE.MathUtils.damp(camera.position.y || 5.3, menuView ? 4.5 : 5.7 + Math.max(0, p.y - 2) + Math.min(p.y, 2) * 0.17, 4, dt);
-  camera.position.z = menuView ? 8.6 : innerWidth < 700 ? 8.7 : 9.4;
-  lookTarget.set(menuView ? -3.2 : p.x * 0.12, 1.45 + Math.max(0, p.y - 2) + Math.min(p.y, 2) * 0.1, -8);
+  if (cameraState !== s) { cameraController.reset(); cameraState = s; }
+  const cameraRegion = cameraVolumes.update(s, game.entities);
+  if (introRig && s.phase !== 'paused') {
+    if (s.phase === 'ready' || s.phase === 'intro') {
+      const clip = pack.cameraAnimations[s.phase === 'ready' ? 'camera_menu_idle' : 'camera_start_pan'];
+      cameraController.setPose(introRig.sample(clip, s.intro?.elapsed ?? 0,
+        s.phase === 'intro' ? s.intro.cameraFov : classicCameraFov(camera.aspect).menu));
+    } else {
+      if (events.some(e => e.type === 'running')) {
+        cameraController.setPose(introRig.sample(pack.cameraAnimations.camera_start_pan, s.intro.duration, s.intro.cameraFov));
+        cameraController.enterRunning();
+      } else if (cameraController.mode === 'external') cameraController.enterRunning();
+      if (events.some(e => e.type === 'crash')) cameraController.startShake();
+      const shakeSample = cameraController.shake
+        ? new THREE.Vector3().randomDirection().multiplyScalar(Math.cbrt(Math.random())).toArray() : [0,0,0];
+      cameraController.step(dt, { position: [p.x,p.y,s.distance], lastGroundedY: p.lastGroundedY,
+        grounded: p.grounded, sneakers: !!s.powerups.sneakers, jetpack: s.flight, shakeSample, ...cameraRegion });
+    }
+  }
+  const pose = cameraController.snapshot();
+  camera.position.set(pose.position[0], pose.position[1], -(pose.position[2] - s.distance));
+  lookTarget.set(pose.target[0], pose.target[1], -(pose.target[2] - s.distance));
   camera.lookAt(lookTarget);
+  if (camera.fov !== pose.fov) { camera.fov = pose.fov; camera.updateProjectionMatrix(); }
+  effects?.update(s, dt, events, camera, character);
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }

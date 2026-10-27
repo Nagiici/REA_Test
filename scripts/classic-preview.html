@@ -6,7 +6,7 @@ const f=document.querySelector('iframe'),out=document.querySelector('#status');l
 const timer=setInterval(()=>{if(f.contentWindow.__runner?.ready){r=f.contentWindow.__runner;source=r.game.routeGenerator;clearInterval(timer);report();}},100);
 function report(){if(!r)return;const s=r.game.state;out.textContent=`本地经典回归 · ${s.phase} · 绊倒 ${s.stumble?.timeLeft.toFixed(2)}秒 · 追逐 ${s.stumble?.guardDistanceNative.toFixed(1)} · 复活 ${s.revival.phase} · 金币 ${s.coins} · 动作 ${r.character.animationNames.length} · 音频 ${r.audio?.buffers.size??0} · 抓捕 ${r.chasers.catchAvatar?.name??"无"} · 错误 ${r.errors.length}`;}
 setInterval(report,100);
-function reset(){const g=r.game;g.routeGenerator=source;g.reset();g.routeGenerator=null;g.entities=g.entities.filter(e=>e.type==='decoration'&&(e.provenance?.environment||/track/i.test(e.visual?.prefabKey??e.visual?.meshKey??'')));g.nextSection=1e9;g.start();return g;}
+function reset(){const g=r.game;g.routeGenerator=source;g.reset();g.routeGenerator=null;g.entities=g.entities.filter(e=>e.type==='decoration'&&(e.provenance?.environment||/track/i.test(e.visual?.prefabKey??e.visual?.meshKey??'')));g.nextSection=1e9;const intro=g.introOptions;g.introOptions=null;g.start();g.introOptions=intro;return g;}
 document.querySelector('#side').onclick=()=>{const g=reset();g.addEntity({type:'train',lane:2,x:2,distance:6,depth:16});g.action('right');};
 document.querySelector('#edge').onclick=()=>{const g=reset();g.action('left');for(let i=0;i<36;i++)g.advance(1/120);g.action('left');for(let i=0;i<120;i++)g.advance(1/120);};
 document.querySelector('#again').onclick=()=>{const g=r.game;if(g.state.phase==='paused')g.pause();g.action('left');};

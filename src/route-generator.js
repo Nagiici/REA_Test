@@ -593,6 +593,18 @@ export class SourceRouteGenerator {
         for (const collider of node.colliders ?? []) {
           let fields = collider.fields ?? collider;
           const sourceCollision = this.library.collisionTags?.byColliderRef?.[`${collider.source?.asset}:${collider.source?.pathId}`];
+          if (fields.m_Enabled !== false && fields.m_IsTrigger && sourceCollision?.tag === 'Subway' && collider.type === 'BoxCollider') {
+            const bounds = colliderBounds(fields, matrix, this.unitScale);
+            // Character.OnCharacterTriggerEnter81966: bounds.max.y - 3 native.
+            // A source trigger is not a hazard. Keeping decoration type also
+            // prevents the existing core collision dispatcher from killing on it.
+            result.entities.push({ type: 'decoration', ...bounds, visual: null,
+              sourceTag: sourceCollision.tag, sourceLayer: sourceCollision.layer, sourceIsTrigger: true,
+              sourceShape: colliderShape(fields, matrix, bounds, this.unitScale),
+              cameraVolume: { kind: 'Subway', maxY: bounds.height - 3 * this.unitScale },
+              provenance: { ...provenance, collider: collider.source } });
+            continue;
+          }
           if (fields.m_Enabled === false || fields.m_IsTrigger && sourceCollision?.layer !== 'Hit') continue;
           if (!['BoxCollider', 'CapsuleCollider'].includes(collider.type)) { result.diagnostics.push({ kind: 'unsupported-collider', type: collider.type, provenance }); continue; }
           if (moving && collider.type === 'BoxCollider') fields = { ...fields, m_Size: { ...fields.m_Size, z: fields.m_Size.z / (1 + ratio) }, m_Center: { x: 0, y: 15.2, z: (30 * moving.decodedFields.trainCount + 1) / (1 + ratio) } };

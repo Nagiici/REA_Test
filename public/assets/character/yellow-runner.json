@@ -2,8 +2,8 @@
   "input": "outputs/yellow-character-47e54de8/yellow-character-full-body.glb",
   "output": "web/public/assets/character/yellow-runner.glb",
   "sourceBytes": 58272900,
-  "bytes": 8955604,
-  "sha256": "6e47261d1896ef013fd5938832145971e8ed60446b04709fa30918a7171f15bf",
+  "bytes": 9687864,
+  "sha256": "a27278487f1b76787bca97a14567745cefe121581fcd7c30ac5a8f78875e15f3",
   "bones": [
     {
       "name": "Root_jnt",
@@ -255,6 +255,36 @@
     }
   ],
   "clips": [
+    {
+      "name": "intro_run",
+      "source": {
+        "asset": "7b969baa9e05db142b6204854657c921",
+        "pathId": "1"
+      },
+      "duration": 1.2083332538604736,
+      "frames": 146,
+      "mappedBones": 26,
+      "maximumHeight": 1.4669389356657199,
+      "groundCorrection": [
+        -0.4535844120752369,
+        0.1038023340848192
+      ]
+    },
+    {
+      "name": "idle_paint",
+      "source": {
+        "asset": "8b246110d72b2a540bd85e2db595baa5",
+        "pathId": "1"
+      },
+      "duration": 23.54166603088379,
+      "frames": 1414,
+      "mappedBones": 26,
+      "maximumHeight": 1.5491520073195284,
+      "groundCorrection": [
+        -0.8540986205608907,
+        0.14096711164231812
+      ]
+    },
     {
       "name": "run",
       "source": {

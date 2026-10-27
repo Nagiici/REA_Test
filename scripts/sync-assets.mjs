@@ -9,12 +9,14 @@ const patchSource = path.resolve(project, '../analysis/powerups/resources/runtim
 const flightPatchSource = path.resolve(project, '../analysis/flight/resources/runtime-assets-patch');
 const classicPatchSource = path.resolve(project, '../analysis/classic/resources/runtime-assets-patch');
 const audioMotionPatchSource = path.resolve(project, '../analysis/classic/audio-v2/runtime-assets-patch');
+const presentationPatchSource = path.resolve(project, '../analysis/classic/presentation-v3/resources/runtime-assets-patch');
 const destination = path.join(project, 'public/assets/recovered');
 // Read both verified additions before replacing the public manifest.
 const patch = JSON.parse(await fs.readFile(path.join(patchSource, 'manifest.patch.json'), 'utf8'));
 const flightPatch = JSON.parse(await fs.readFile(path.join(flightPatchSource, 'manifest.patch.json'), 'utf8'));
 const classicPatch = JSON.parse(await fs.readFile(path.join(classicPatchSource, 'manifest.patch.json'), 'utf8'));
 const audioMotionPatch = JSON.parse(await fs.readFile(path.join(audioMotionPatchSource, 'manifest.patch.json'), 'utf8'));
+const presentationPatch = JSON.parse(await fs.readFile(path.join(presentationPatchSource, 'manifest.patch.json'), 'utf8'));
 await fs.mkdir(destination, { recursive: true });
 for (const name of await fs.readdir(source)) {
   if (!/\.(json|png)$/i.test(name)) continue;
@@ -25,7 +27,7 @@ for (const name of await fs.readdir(source)) {
     await fs.writeFile(path.join(destination, name), JSON.stringify(manifest));
   } else await fs.copyFile(path.join(source, name), path.join(destination, name));
 }
-for (const directory of [patchSource, flightPatchSource, classicPatchSource, audioMotionPatchSource]) {
+for (const directory of [patchSource, flightPatchSource, classicPatchSource, audioMotionPatchSource, presentationPatchSource]) {
   for (const name of await fs.readdir(directory)) {
     if (!/\.(json|png|wav|m4a|ogg)$/i.test(name) || name === 'manifest.patch.json') continue;
     await fs.copyFile(path.join(directory, name), path.join(destination, name));
@@ -52,6 +54,22 @@ for (const key of ['classicAnimationBindings', 'classicAnimationParameters', 'cl
 Object.assign(manifest.animations ??= {}, audioMotionPatch.animations ?? {});
 for (const key of ['classicAudio', 'audioClips', 'classicMotionPools', 'normalMotionBindings', 'normalMotionPools', 'motionAnimationSourceBindings', 'guardAnimationAdditions']) {
   if (audioMotionPatch[key] !== undefined) manifest[key] = audioMotionPatch[key];
+}
+for (const key of ['meshes', 'textures', 'prefabs', 'animations']) {
+  Object.assign(manifest[key] ??= {}, presentationPatch[key] ?? {});
+}
+for (const key of ['classicPresentation', 'introMotionPools', 'introAnimationAdditions', 'cameraAnimationAdditions', 'introStage']) {
+  if (presentationPatch[key] !== undefined) manifest[key] = presentationPatch[key];
+}
+if (presentationPatch.audioAdditions) {
+  const audioPath = path.join(destination, manifest.classicAudio);
+  const audio = JSON.parse(await fs.readFile(audioPath, 'utf8'));
+  Object.assign(audio.clips, presentationPatch.audioAdditions.clips ?? {});
+  Object.assign(audio.bindings, presentationPatch.audioAdditions.bindings ?? {});
+  Object.assign(manifest.audioClips ??= {}, presentationPatch.audioAdditions.clips ?? {});
+  audio.limitations = audio.limitations.filter(text => !text.startsWith('CoinPool/CoinManager/Coin serialized'));
+  audio.coinSourceResolution = 'CharacterPickupParticles.CoinPickup supplies the exact coin clip and pitch/volume ranges; presentation-v3 closes the earlier bounded-search gap.';
+  await fs.writeFile(audioPath, JSON.stringify(audio));
 }
 await fs.writeFile(manifestPath, JSON.stringify(manifest));
 // The public manifest omits the local APK path, so hash the actual public bytes.

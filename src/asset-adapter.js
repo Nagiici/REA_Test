@@ -239,6 +239,7 @@ export async function loadRecoveredPack(base = '/assets/recovered/', { includeCh
   const meshData = Object.fromEntries(await Promise.all(meshEntries.map(async ([name, info]) => [name, await fetchJson(base + info.file)])));
   const rig = await fetchJson(base + manifest.rig.file);
   const animations = Object.fromEntries(await Promise.all(Object.entries(manifest.animations).map(async ([name, info]) => [name, await fetchJson(base + info.file)])));
+  const cameraAnimations = Object.fromEntries(await Promise.all(Object.entries(manifest.cameraAnimationAdditions ?? {}).map(async ([name, info]) => [name, await fetchJson(base + info.file)])));
   const prefabData = Object.fromEntries(await Promise.all(Object.entries(manifest.prefabs ?? {}).map(async ([name, info]) => [name, await fetchJson(base + info.file)])));
   const routeLibraryPath = typeof manifest.routeLibrary === 'string' ? manifest.routeLibrary : manifest.routeLibrary?.file;
   const routeLibrary = routeLibraryPath ? await fetchJson(base + routeLibraryPath) : null;
@@ -253,6 +254,7 @@ export async function loadRecoveredPack(base = '/assets/recovered/', { includeCh
   const environmentBindings = environmentPath ? await fetchJson(base + (typeof environmentPath === 'string' ? environmentPath : environmentPath.file)) : null;
   const classicBindings = manifest.classicAnimationParameters ? await fetchJson(base + manifest.classicAnimationParameters) : null;
   const classicAudio = manifest.classicAudio ? await fetchJson(base + manifest.classicAudio) : null;
+  const classicPresentation = manifest.classicPresentation ? await fetchJson(base + manifest.classicPresentation) : null;
   const classicMotionPools = manifest.classicMotionPools ? await fetchJson(base + manifest.classicMotionPools) : {};
   const character = characterFromUnity({ jake_Mesh: meshData.jake_Mesh, jake_head: meshData.jake_head }, rig, textures.jake_tex_low, animations);
   const chasers = Object.fromEntries(await Promise.all(Object.entries(includeChasers ? manifest.chaserActors ?? {} : {}).map(async ([name, info]) => {
@@ -285,7 +287,7 @@ export async function loadRecoveredPack(base = '/assets/recovered/', { includeCh
     props[name] = wrapper;
   }
   const prefabs = Object.fromEntries(Object.entries(prefabData).map(([name, data]) => [name, prefabFromUnity(data, meshData, textures, manifest)]));
-  return { manifest, character, chasers, props, prefabs, prefabData, textures, meshData, routeLibrary, environmentBindings, classicBindings, classicAudio, classicMotionPools,
+  return { manifest, character, chasers, props, prefabs, prefabData, textures, meshData, animations, cameraAnimations, routeLibrary, environmentBindings, classicBindings, classicAudio, classicMotionPools, classicPresentation, presentation: classicPresentation,
     cloneProp: name => props[name]?.clone(true), clonePrefab: name => prefabs[name]?.clone(true) };
 }
 
@@ -314,7 +316,7 @@ export async function characterFromGLB(buffer, { name = '自定义角色', sourc
     const action = actions.get(match); action.reset().setEffectiveWeight(1);
     // Physics owns the source roll deadline. Looping through the final fixed
     // step avoids a clamped frozen pose; new accepted rolls have new tokens.
-    if (['run', 'roll', 'flight', 'board_run', 'board_roll'].includes(name) || /^run\d/.test(name)) {
+    if (['run', 'roll', 'flight', 'board_run', 'board_roll', 'top_menu', 'idle_paint'].includes(name) || /^run\d/.test(name)) {
       action.setLoop(THREE.LoopRepeat); action.clampWhenFinished = false;
       if (name.endsWith('roll')) action.setDuration(duration || action.getClip().duration);
       else action.timeScale = 1;

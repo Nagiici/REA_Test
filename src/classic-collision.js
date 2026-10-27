@@ -33,6 +33,17 @@ export class ClassicCollisionState {
   get pendingDeath() { return this._pendingDeaths.length ? Math.min(...this._pendingDeaths) : 0; }
   get hasPendingDeath() { return this._pendingDeaths.length > 0; }
 
+  // Character.InitForRun: FollowingGuard.Restart(true), StartStumble(false).
+  // The original five-second timer starts during Intro, not after it.
+  beginIntro() {
+    this.reset();
+    this.isStumbling = true;
+    this.timeLeft = CLASSIC_COLLISION_SOURCE.stumbleSeconds;
+    this.guardDistanceNative = CLASSIC_COLLISION_SOURCE.guardDistanceMinNative;
+    this.guardClose = true;
+    return this.snapshot();
+  }
+
   snapshot() {
     return { isStumbling: this.isStumbling, timeLeft: this.timeLeft,
       pendingDeath: this.pendingDeath, hasPendingDeath: this.hasPendingDeath,

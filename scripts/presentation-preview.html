@@ -1,0 +1,28 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>经典开场与特效回归</title>
+<style>body{margin:0;background:#123839;color:#eaf1da;font:13px system-ui}iframe{display:block;margin:auto;border:0;width:100%;height:calc(100dvh - 115px)}body.portrait iframe{width:390px}nav{padding:10px;display:flex;flex-wrap:wrap;gap:7px}button{padding:7px 12px;background:#e9efce;border:0;border-radius:6px;color:#143e3c}output{display:block;padding:0 12px;white-space:pre-wrap;font-size:12px}</style>
+<iframe src="/" title="经典模式验证"></iframe>
+<nav><button id="menu">菜单</button><button id="intro">开场定格</button><button id="run">完整开跑</button><button id="coin">金币闪光</button><button id="jump">普通跳跃</button><button id="roof">车顶镜头</button><button id="shoes">跑鞋高跳</button><button id="board">滑板碰撞</button><button id="flight">喷气飞行</button><button id="dizzy">碰撞星星</button><button id="roll">连续翻滚</button><button id="pause">暂停／继续</button><button id="portrait">横／竖屏</button></nav>
+<output id="status">等待游戏资源…</output>
+<script type="module">
+const frame=document.querySelector('iframe'),out=document.querySelector('#status');let r,route,jobs=[],failure=[];
+function clearJobs(){jobs.forEach(clearTimeout);jobs=[];}
+const later=(fn,ms)=>jobs.push(setTimeout(fn,ms));
+function reset(intro=false){clearJobs();const g=r.game;g.routeGenerator=route;g.reset();g.routeGenerator=null;g.entities=g.entities.filter(e=>e.type==='decoration'&&(e.provenance?.environment||/track/i.test(e.visual?.prefabKey??e.visual?.meshKey??'')));g.nextSection=1e9;if(intro)frame.contentDocument.querySelector('#start').click();else{const options=g.introOptions;g.introOptions=null;g.start();g.introOptions=options;}return g;}
+const stopAfter=ms=>later(()=>r.game.pause(),ms);
+frame.addEventListener('load',()=>{frame.contentWindow.addEventListener('error',e=>failure.push(e.message));const style=frame.contentDocument.createElement('style');style.textContent='#menu{visibility:hidden}';frame.contentDocument.head.append(style);});
+setInterval(()=>{if(!r&&frame.contentWindow.__runner?.ready){r=frame.contentWindow.__runner;route=r.game.routeGenerator;}if(!r)return;const s=r.game.state,c=r.cameraController.snapshot(),fx=r.effects.stats;
+out.textContent=`本地确定性场景验证（障碍已隔离） · ${s.phase}${s.pausedFrom?' / '+s.pausedFrom:''} · intro ${s.intro?.elapsed.toFixed(3)??'无'} · elapsed ${s.elapsed.toFixed(3)} · distance ${s.distance.toFixed(2)} · guard ${s.stumble.guardDistanceNative.toFixed(1)} / ${s.stumble.timeLeft.toFixed(2)}s\n相机 ${c.position.map(x=>x.toFixed(2)).join(', ')} · FOV ${c.fov.toFixed(2)} · ${c.mode} · y ${s.player.y.toFixed(2)} / grounded ${s.player.grounded} · 动作 ${r.character.animationNames.length} · 粒子 ${JSON.stringify(fx.activeParticles)} · 闪光 ${fx.coin?.visible} · draw ${r.renderer.info.render.calls} · 错误 ${[...failure,...r.errors].join('|')||0}`;},100);
+document.querySelector('#menu').onclick=()=>{clearJobs();r.game.routeGenerator=route;r.game.reset();};
+document.querySelector('#intro').onclick=()=>{reset(true);stopAfter(650);};
+document.querySelector('#run').onclick=()=>{reset(true);stopAfter(2300);};
+document.querySelector('#coin').onclick=()=>{const g=reset();for(let i=0;i<12;i++)later(()=>g.collectCoin({id:90000+i,type:'coin',x:g.state.player.x,y:1.1}),i*160);stopAfter(1500);};
+document.querySelector('#jump').onclick=()=>{const g=reset();later(()=>g.action('jump'),100);stopAfter(400);};
+document.querySelector('#roof').onclick=()=>{const g=reset();g.addEntity({type:'train',lane:1,distance:12,depth:30,height:3.2});Object.assign(g.state.player,{y:3.2,lastGroundedY:3.2,floor:3.2,grounded:true});stopAfter(400);};
+document.querySelector('#shoes').onclick=()=>{const g=reset();g.activatePowerup('sneakers');later(()=>g.action('jump'),100);stopAfter(430);};
+document.querySelector('#board').onclick=()=>{const g=reset();g.action('board');later(()=>g.protectWithBoard(),200);stopAfter(320);};
+document.querySelector('#flight').onclick=()=>{const g=reset();g.activatePowerup('jetpack');stopAfter(2600);};
+document.querySelector('#dizzy').onclick=()=>{const g=reset();g.stumble('stumble_left');stopAfter(900);};
+document.querySelector('#roll').onclick=()=>{const g=reset();for(let i=0;i<30;i++)later(()=>g.action('roll'),i*130);stopAfter(3700);};
+document.querySelector('#pause').onclick=()=>r.game.pause();
+document.querySelector('#portrait').onclick=()=>document.body.classList.toggle('portrait');
+</script></html>

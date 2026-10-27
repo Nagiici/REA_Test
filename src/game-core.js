@@ -5,6 +5,7 @@ import { Jetpack } from './jetpack.js';
 import { makeFlightCoins } from './flight-coins.js';
 import { Hoverboard, HOVERBOARD_BROWSER_ADAPTER } from './hoverboard.js';
 import { DEFAULT_CONFIG } from './config.js';
+import { SourceClassicIntro } from './classic-intro.js';
 import { POWERUP_SECONDS, POWERUP_NAMES, SNEAKERS, curveValue, touchesPowerup } from './powerups.js';
 
 const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
@@ -78,7 +79,7 @@ export class RunnerGame {
     this.nextSection = this.routeGenerator?.initialDistance ?? 28;
     this.sectionCount = 0;
     this.state = {
-      phase: 'ready', distance: 0, coins: 0, score: 0,
+      phase: 'ready', intro: null, distance: 0, coins: 0, score: 0,
       baseScore: 0, scoredMeters: 0, powerups: {},
       speed: this.config.initialSpeed, elapsed: 0,
       player: { lane: 1, x: 0, y: 0, velocityY: 0, rollRemaining: 0, rollToken: 0,
@@ -105,15 +106,23 @@ export class RunnerGame {
   }
 
   start() {
-    if (this.state.phase === 'reviving' || this.state.catchRemaining > 0) return;
+    if (!['ready', 'gameover'].includes(this.state.phase) || this.state.catchRemaining > 0) return;
     if (this.state.phase === 'gameover') this.reset();
+    if (this.introOptions) {
+      this.intro = new SourceClassicIntro(this.introOptions);
+      this.state.intro = this.intro.begin();
+      this.state.phase = 'intro';
+      this.state.stumble = this.collisionState.beginIntro();
+      this.events.push(...this.state.intro.events);
+      return;
+    }
     this.state.phase = 'running';
     this.events.push({ type: 'start' });
   }
 
   pause() {
     const s = this.state;
-    if (s.phase === 'running' || s.phase === 'reviving' || s.phase === 'gameover' && (this.revival.state.phase === 'offered' || s.catchRemaining > 0)) { s.pausedFrom = s.phase; s.phase = 'paused'; }
+    if (s.phase === 'intro' || s.phase === 'running' || s.phase === 'reviving' || s.phase === 'gameover' && (this.revival.state.phase === 'offered' || s.catchRemaining > 0)) { s.pausedFrom = s.phase; s.phase = 'paused'; }
     else if (s.phase === 'paused') { s.phase = s.pausedFrom ?? 'running'; s.pausedFrom = null; }
     this.accumulator = 0;
   }
@@ -179,7 +188,7 @@ export class RunnerGame {
   }
 
   get hasActiveClock() {
-    return this.state.phase === 'running' || this.state.phase === 'reviving'
+    return this.state.phase === 'intro' || this.state.phase === 'running' || this.state.phase === 'reviving'
       || this.state.phase === 'gameover' && (this.revival.state.phase === 'offered' || this.state.catchRemaining > 0);
   }
 
@@ -188,7 +197,15 @@ export class RunnerGame {
     this.accumulator += clamp(seconds, 0, 0.1);
     const dt = this.config.fixedStep;
     while (this.accumulator + 1e-10 >= dt && this.hasActiveClock) {
-      if (this.state.phase === 'running') this.step(dt);
+      if (this.state.phase === 'intro') {
+        this.state.stumble = this.collisionState.step(dt, { running: false });
+        this.state.intro = this.intro.step(dt);
+        if (this.state.intro.finished) {
+          this.state.phase = 'running';
+          this.events.push(...this.state.intro.events, { type: 'start' });
+        }
+      }
+      else if (this.state.phase === 'running') this.step(dt);
       else this.stepRevival(dt);
       this.accumulator -= dt;
     }
