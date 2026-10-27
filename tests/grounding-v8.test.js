@@ -67,10 +67,10 @@ for(const id of Object.keys(library.routes))for(const e of generator.compileChun
 for(const tag of ['HitStationPlatform','HitBarrierJump','HitBlocker'])test(`recovered ${tag} supports a descent from above, not a front climb`,()=>{
  const source=fixtures.get(tag);assert.ok(source);const g=empty({initialSpeed:0}),e=g.addEntity({...source,x:0,distance:0}),p=g.state.player;
  const top=sourceVerticalBounds(e,0,0).top;Object.assign(p,{y:top+.01,velocityY:-5,grounded:false,motionGrounded:false,isFalling:true});
- tick(g);assert.equal(p.y,top);assert.equal(p.grounded,true);assert.equal(g.state.phase,'running');
+ tick(g);assert.ok(Math.abs(p.y-top)<1e-7);assert.equal(p.grounded,true);assert.equal(g.state.phase,'running');
  tick(g);assert.equal(p.motionGrounded,true);assert.equal(g.events.filter(e=>e.type==='land').length,1);
  assert.equal(g.surfaceHeight(0,0,top-.001),0,'no tolerance-based step through the front face');
- assert.equal(g.surfaceHeight(0,e.width/2+.001,top+1),0,'outside the source face is unsupported');
+ assert.equal(g.surfaceHeight(0,e.width/2+.201,top+1),0,'beyond the physical foot radius is unsupported');
  e.sourceIsTrigger=true;assert.equal(g.surfaceHeight(0,0,top+1),0);
  e.sourceIsTrigger=false;e.collisionDisabled=true;assert.equal(g.surfaceHeight(0,0,top+1),0);
 });

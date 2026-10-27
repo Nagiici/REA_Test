@@ -3,6 +3,7 @@ import { ClassicRevive } from './classic-revive.js';
 import { resolveClassicImpact } from './classic-impact.js';
 import { runnerEntityContact } from './classic-contact.js';
 import { classicVerticalMotion } from './classic-vertical.js';
+import { CLASSIC_CONTROLLER, controllerInterval, expandController } from './classic-controller.js';
 import { Jetpack } from './jetpack.js';
 import { makeFlightCoins } from './flight-coins.js';
 import { makeHeadstartRewards } from './headstart-rewards.js';
@@ -92,7 +93,8 @@ export class RunnerGame {
         transitionFromHeight: false, canAccelerateForward: true,
         // Ready is already settled. Native constructor starts its observable
         // false; ApplyGravity then publishes contact independently of Move.
-        grounded: true, motionGrounded: true, floor: 0, laneFrom: 0, laneElapsed: 0, laneDuration: 0 },
+        grounded: true, motionGrounded: true, controllerEnabled: true, colliderSqueezed: false,
+        floor: 0, laneFrom: 0, laneElapsed: 0, laneDuration: 0 },
       collision: null, reaction: null, pausedFrom: null, catchRemaining: 0, deathGrounding: null,
     };
     this.jetpack = new Jetpack({ tier: clamp(Math.floor(this.config.powerupTier), 0, 6) });
@@ -105,6 +107,8 @@ export class RunnerGame {
     this.reactionSerial = 0;
     this.rollTimeline = new SourceRollTimeline();
     this.rollAnimation = null;
+    this.controllerProbe = null; this.controllerExpansionCount = 0;
+    this.squeezeOwners = new Set();
     this.lastStumbleContact = null;
     this.contacts = new Set();
     this.ceiling = { hit: false, minY: 0, evaded: false };
@@ -176,11 +180,14 @@ export class RunnerGame {
       return false;
     }
     if (action === 'jump') {
-      this.endRoll('jump');
+      // Accepted Jump expands first; OnJump synchronously ends an active roll,
+      // causing a second expansion with the squeeze owner already removed.
+      if (p.rollRemaining > 0) this.expandColliders('jump');
       if (p.isJumping && this.ceiling.evaded) this.ceiling.hit = false;
       p.inAirJump = false; p.isJumping = true; p.isFalling = false; p.motionGrounded = false;
       p.jumpHeight = this.state.powerups.sneakers > 0 ? SNEAKERS.height : this.config.jumpHeight;
       p.velocityY = Math.sqrt(2 * this.config.gravity * this.config.jumpHeight);
+      this.endRoll('jump');
       p.grounded = false;
       if (this.state.powerups.sneakers > 0) {
         p.velocityY = 0;
@@ -207,6 +214,7 @@ export class RunnerGame {
         transitionFromHeight: p.transitionFromHeight,
         routeRelativeHeightNative: Number.isFinite(routeY) ? routeY * 10 : null }) * .1;
       p.rollRemaining = this.state.board.active ? this.config.boardRollSeconds : this.config.rollSeconds;
+      this.squeezeOwners.add('roll'); p.colliderSqueezed = true;
       p.rollToken++;
       this.rollTimeline.begin(p.rollRemaining); this.rollAnimation = null;
       this.events.push({ type: 'roll', token: p.rollToken, hoverboard: this.state.board.active });
@@ -230,8 +238,23 @@ export class RunnerGame {
 
   endRoll(reason) {
     const p = this.state.player, active = p.rollRemaining > 0;
+    if (active) this.expandColliders(reason);
     p.rollRemaining = 0; this.rollTimeline.active = false; this.rollAnimation = null;
     if (active) this.events.push({ type: 'roll-end', token: p.rollToken, reason });
+  }
+
+  expandColliders(reason) {
+    const s = this.state, p = s.player;
+    const solids = this.entities.map(e => ({ ...e, x: e.x ?? (e.lane - 1) * this.config.laneSpacing }));
+    const result = expandController([p.x, p.y, s.distance], p.colliderSqueezed, solids,
+      { enabled: () => p.controllerEnabled, ground: this.groundPlaneAt(s.distance, p.x),
+        removeSqueeze: () => { this.squeezeOwners.delete('roll'); return this.squeezeOwners.size > 0; } });
+    p.colliderSqueezed = result.squeezed;
+    p.y = result.position[1];
+    if (result.trace.some(move => move.enabled)) p.grounded = result.below;
+    this.controllerProbe = { ...result, reason, serial: ++this.controllerExpansionCount };
+    // CachePositions refreshes current position, not fixed-direction history,
+    // velocity, observable ground, ceiling memory or animation notifications.
   }
 
   enterRunningFromHeight() {
@@ -489,7 +512,7 @@ export class RunnerGame {
       }
       const motion = classicVerticalMotion({ y: p.y, velocityY: p.velocityY, dt, gravity: c.gravity,
         jumping: p.isJumping, ceiling: this.ceiling,
-        triggerMaxY: p.y + (p.rollRemaining > 0 ? c.rollingBottom + c.rollingHeight : c.standingBottom + c.standingHeight),
+        triggerMaxY: p.y + (p.colliderSqueezed ? c.rollingBottom + c.rollingHeight : c.standingBottom + c.standingHeight),
         sneakersJump: p.sneakersJump, oldDistance: previousDistance, nextDistance: s.distance });
       p.y += motion.dy; p.velocityY = motion.velocityY; p.sneakersJump = motion.sneakersJump;
       this.ceiling = motion.ceiling;
@@ -556,12 +579,12 @@ export class RunnerGame {
       const sweptZ = Math.max(oldRelative, newRelative) >= -halfDepth && Math.min(oldRelative, newRelative) <= halfDepth;
       const sweptX = Math.max(previousX, p.x) + c.playerRadius >= x - e.width / 2
         && Math.min(previousX, p.x) - c.playerRadius <= x + e.width / 2;
-      const triggerHeight = p.rollRemaining > 0 ? c.rollingHeight : c.standingHeight;
-      const triggerOffset = p.rollRemaining > 0 ? c.rollingBottom : c.standingBottom;
+      const triggerHeight = p.colliderSqueezed ? c.rollingHeight : c.standingHeight;
+      const triggerOffset = p.colliderSqueezed ? c.rollingBottom : c.standingBottom;
       if (!sweptZ || !sweptX || Math.max(previousY, p.y) + triggerOffset + triggerHeight < (e.bottom ?? 0)
         || Math.min(previousY, p.y) + triggerOffset > e.height) continue;
       const contact = runnerEntityContact([previousX, previousY, previousDistance], [p.x, p.y, s.distance],
-        { ...e, x }, p.rollRemaining > 0, c);
+        { ...e, x }, p.colliderSqueezed, c);
       if (contact) {
         const [contactX, contactY, contactZ] = contact.position, obstacle = contact.entity;
         const triggerBottom = contactY + triggerOffset, playerTop = triggerBottom + triggerHeight;
@@ -754,9 +777,13 @@ export class RunnerGame {
     });
   }
 
-  surfaceHeight(distance, x, previousY) {
+  groundPlaneAt(distance, x) {
     const inside = entity => Math.abs((entity.x ?? (entity.lane - 1) * this.config.laneSpacing) - x) < entity.width / 2 && Math.abs(entity.distance - distance) < entity.depth / 2;
-    let floor = this.entities.some(entity => (entity.type === 'gap' || entity.floor === false) && inside(entity)) ? -Infinity : 0;
+    return this.entities.some(entity => (entity.type === 'gap' || entity.floor === false) && inside(entity)) ? -Infinity : 0;
+  }
+
+  surfaceHeight(distance, x, previousY) {
+    let floor = this.groundPlaneAt(distance, x);
     for (const e of this.entities) {
       if (e.collisionDisabled) continue;
       // CharacterController.Move has no train-name whitelist. Recovered solid
@@ -765,20 +792,26 @@ export class RunnerGame {
       const solidTop = e.type === 'obstacle' && e.sourceShape && e.sourceIsTrigger === false && e.sourceTag !== 'Ground';
       if (e.sourceIsTrigger || e.type !== 'train' && e.type !== 'ramp' && !e.walkable && !solidTop) continue;
       const entityX = e.x ?? (e.lane - 1) * this.config.laneSpacing;
-      if (Math.abs(entityX - x) > e.width / 2) continue;
+      const radius = CLASSIC_CONTROLLER.radius;
+      if (Math.abs(entityX - x) > e.width / 2 + radius) continue;
       const relative = distance - (e.distance - e.depth / 2);
-      if (relative < 0 || relative > e.depth) continue;
+      if (relative < -radius || relative > e.depth + radius) continue;
       if (e.sourceShape) {
-        const bounds = sourceVerticalBounds(e, x, distance);
-        // New solid supports require a true top crossing, not a step-up from
-        // below. Existing ramp/train seam tolerances remain separate adapters.
+        const bounds = controllerInterval({ ...e, x: entityX }, x, distance);
+        // Rounded physical foot support, including edges/corners; the larger
+        // trigger capsule never supplies a floor. Steep grazing normals do not
+        // become a walkable shelf. Existing ramp seam adaptation stays explicit.
         const tolerance = solidTop ? 1e-7 : e.type === 'ramp' ? 0.35 : 0.12;
-        if (bounds && previousY >= bounds.top - tolerance) floor = Math.max(floor, bounds.top);
+        if (bounds?.walkable && previousY >= bounds.max - tolerance) floor = Math.max(floor, bounds.max);
       } else if (e.type === 'ramp') {
+        if (relative < 0 || relative > e.depth || Math.abs(entityX - x) > e.width / 2) continue;
         const height = e.surface ? this.sourceSurfaceHeight(e, x, distance) : (e.bottom ?? 0) + relative / e.depth * (e.height - (e.bottom ?? 0));
         if (height != null) floor = Math.max(floor, height);
       }
-      else if (previousY >= e.height - 0.12) floor = Math.max(floor, e.height);
+      else {
+        const bounds = controllerInterval({ ...e, x: entityX }, x, distance);
+        if (bounds?.walkable && previousY >= bounds.max - .12) floor = Math.max(floor, bounds.max);
+      }
     }
     return floor;
   }

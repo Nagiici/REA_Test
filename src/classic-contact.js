@@ -84,7 +84,7 @@ export function capsuleEntitySeparation(capsule, entity) {
 
 export function overlapsRunnerEntity(state, entity, config = DEFAULT_CONFIG) {
   return capsuleEntitySeparation(runnerCapsule([state.player.x, state.player.y, state.distance],
-    state.player.rollRemaining > 0, config), entity) <= 1e-9;
+    state.player.colliderSqueezed ?? state.player.rollRemaining > 0, config), entity) <= 1e-9;
 }
 
 /** Relative swept capsule test. Linear motion within a fixed tick is an

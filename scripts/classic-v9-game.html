@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#123839" />
+    <meta name="description" content="地铁跑酷资源恢复与浏览器交互原型。" />
+    <title>地铁跑酷 · 浏览器重建试玩</title>
+  </head>
+  <body>
+    <main id="app">
+      <canvas id="game" tabindex="0" aria-label="三维跑酷游戏画面，方向键换道、跳跃和翻滚，P暂停"></canvas>
+      <div class="vignette"></div>
+      <header class="topbar">
+        <div class="wordmark"><span class="mark">↗</span><div><strong>SUBWAY<span>RUN</span></strong><small>浏览器重建试玩</small></div></div>
+        <div class="header-actions">
+          <button class="board-button" id="board" disabled title="E 或双击画面使用滑板">滑板 ×3 · E</button>
+          <button class="board-button" id="turbo" hidden title="T 加速">再次加速 · T</button>
+          <button class="icon-button" id="sound" aria-label="开启游戏音效" title="音效">♪</button>
+          <button class="icon-button" id="pause" aria-label="暂停游戏" title="暂停 · P"><span class="pause-glyph">Ⅱ</span></button>
+        </div>
+      </header>
+      <section class="scoreboard" aria-label="游戏成绩">
+        <div class="distance-stat"><span>距离</span><strong id="distance">0</strong><em>m</em></div>
+        <div class="coin-stat"><i class="coin-icon">S</i><strong id="coins">0</strong></div>
+        <div class="score-stat"><span>积分</span> <b id="score">0</b> <em id="multiplier">×1</em></div>
+        <div class="best-stat"><span>最佳</span><b id="best">0</b> m</div>
+      </section>
+      <section class="powerup-status" aria-label="生效中的道具">
+        <div id="chase-status" hidden><span>警卫逼近</span><progress max="5" value="5"></progress></div>
+        <div id="effect-jetpack" hidden><span>喷气背包</span><progress max="1" value="1"></progress></div>
+        <div id="effect-magnet" hidden><span>金币磁铁</span><progress max="1" value="1"></progress></div>
+        <div id="effect-sneakers" hidden><span>超级跑鞋</span><progress max="1" value="1"></progress></div>
+        <div id="effect-doubleScore" hidden><span>双倍积分</span><progress max="1" value="1"></progress></div>
+      </section>
+      <div id="toast" class="toast" aria-live="polite"></div>
+      <section class="menu" id="menu" aria-label="游戏菜单">
+        <div class="eyebrow"><span></span> 经典模式 · 城市轨道</div>
+        <h1 id="menu-title">下一站，<br><em>全速前进。</em></h1>
+        <p id="menu-description">躲开列车，跃过路障，沿着金币奔跑。</p>
+        <div class="result" id="result" hidden><div><span>本次距离</span><strong id="result-distance">0 <small>m</small></strong></div><div><span>收集金币</span><strong id="result-coins">0</strong></div></div>
+        <button class="revive-button" id="revive" hidden>试玩复活</button>
+        <small id="revive-note" hidden>本地试玩每局可复活一次</small>
+        <button class="start-button" id="start"><span id="start-label">开始奔跑</span><b>→</b></button>
+        <label class="headstart-option" id="headstart-option"><input type="checkbox" id="headstart" /> 极速起跑 <small>本地试玩 · 飞行中可再加速两次</small></label>
+        <div class="control-guide"><span><kbd>←</kbd><kbd>→</kbd> 换道</span><span><kbd>↑</kbd> 跳跃</span><span><kbd>↓</kbd> 翻滚</span></div>
+        <p class="touch-guide">滑动控制 · 双击画面或按 E 使用滑板 · 每局 3 块</p>
+      </section>
+      <footer class="bottom-bar">
+        <div class="asset-status" id="asset-status"><span class="status-light"></span><span id="asset-label">正在读取角色资源…</span></div>
+        <button class="import-button" id="import-character">＋ 导入角色</button>
+        <input type="file" id="character-file" accept=".glb" hidden />
+      </footer>
+      <div class="progress-track" aria-hidden="true"><span id="speed-line"></span></div>
+      <div class="fatal-error" id="fatal-error" hidden></div>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  <script type="module" src="/scripts/classic-v9-overlay.js"></script></body>
+</html>
