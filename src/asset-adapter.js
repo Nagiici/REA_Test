@@ -396,7 +396,7 @@ export function createCharacterAnimationController(mixer, clips) {
 }
 
 export async function loadYellowCharacter() {
-  const response = await fetch('/assets/character/yellow-runner.glb?rev=5d378d6bd609');
+  const response = await fetch('/assets/character/yellow-runner.glb?rev=14933afe6540');
   if (!response.ok) throw new Error(`黄色角色读取失败 (${response.status})`);
   return characterFromGLB(await response.arrayBuffer(), { name: '黄色小怪兽', source: 'hi3d-with-recovered-jake-motion' });
 }

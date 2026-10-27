@@ -2,8 +2,8 @@
   "input": "outputs/yellow-character-47e54de8/yellow-character-arms-repaired.glb",
   "output": "web/public/assets/character/yellow-runner.glb",
   "sourceBytes": 5472980,
-  "bytes": 9890708,
-  "sha256": "5d378d6bd6096d0f0f84a6e8987445860dcb4f3c98ee6fd6ab2cbe219e3c59ad",
+  "bytes": 9987260,
+  "sha256": "14933afe6540a1bee0347e9e3dedcf2f1fa3fe85c3627fc6e5add4ddac44f3c8",
   "bones": [
     {
       "name": "Root_jnt",
@@ -355,6 +355,21 @@
       "groundCorrection": [
         -0.09911003893109793,
         -0.05145243815180911
+      ]
+    },
+    {
+      "name": "flight_headstart",
+      "source": {
+        "asset": "e4c3ca70f6c5abf4bb75b6eadadefe49",
+        "pathId": "7"
+      },
+      "duration": 1.6000003814697266,
+      "frames": 194,
+      "mappedBones": 26,
+      "maximumHeight": 1.5872964850876992,
+      "groundCorrection": [
+        -0.22126512656428976,
+        0.3002744287870853
       ]
     },
     {

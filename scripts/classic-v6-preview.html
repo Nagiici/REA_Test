@@ -1,0 +1,23 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>经典特殊镜头与碰撞验证</title>
+<style>body{margin:0;background:#123839;color:#edf3da;font:13px system-ui}iframe{display:block;border:0;width:100%;height:calc(100dvh - 180px)}body.portrait iframe{width:390px;margin:auto}nav{display:flex;flex-wrap:wrap;gap:7px;padding:10px}button{padding:8px 12px;border:0;border-radius:6px;background:#e9efce;color:#143e3c}output{display:block;white-space:pre-wrap;padding:0 12px;font-size:12px}</style>
+<iframe src="/" title="经典模式场景"></iframe>
+<nav><button id="menu">菜单</button><button id="headstart">开局冲刺镜头</button><button id="turbo">二档加速镜头</button><button id="full">三段冲刺与落地</button><button id="ceiling">球鞋碰顶</button><button id="ceiling-end">碰顶后恢复</button><button id="roll">连续翻滚</button><button id="pause">暂停／继续</button><button id="portrait">横／竖屏</button></nav>
+<output id="status">等待角色资源…</output>
+<script type="module">
+const frame=document.querySelector('iframe'),out=document.querySelector('output');let r,route,jobs=[],failures=[],history=[],label='菜单';
+const later=(fn,ms)=>jobs.push(setTimeout(fn,ms));
+function reset(isolate=false){jobs.forEach(clearTimeout);jobs=[];history=[];const g=r.game;g.routeGenerator=route;g.headstartOnStart=false;g.reset();if(isolate){g.routeGenerator=null;g.entities=g.entities.filter(e=>e.type==='decoration'&&(e.provenance?.environment||/track/i.test(e.visual?.prefabKey??'')));g.nextSection=1e9;const intro=g.introOptions;g.introOptions=null;g.start();g.introOptions=intro;g.state.distance=80;}return g;}
+const freeze=ms=>later(()=>r.game.pause(),ms);
+frame.addEventListener('load',()=>{frame.contentWindow.addEventListener('error',e=>failures.push(e.message));});
+setInterval(()=>{if(!r&&frame.contentWindow.__runner?.ready){r=frame.contentWindow.__runner;route=r.game.routeGenerator;const drain=r.game.drainEvents.bind(r.game);r.game.drainEvents=()=>{const events=drain();history.push(...events.map(e=>e.type));history=history.slice(-16);return events;};}if(!r)return;
+ const s=r.game.state;frame.contentDocument.querySelector('#menu').style.visibility=s.phase==='paused'?'hidden':'';const c=r.cameraController.snapshot(),p=s.player,a=r.character.getAnimationSnapshot().current,f=s.flight;
+ out.textContent=`${label} · ${s.phase}/${s.pausedFrom??''} · 动作 ${a.name} · 距离 ${s.distance.toFixed(2)} · 高度 ${p.y.toFixed(3)} · 落地 ${p.grounded}\n镜头 Y ${c.position[1].toFixed(3)} · FOV ${c.fov.toFixed(2)} · 速度 ${s.speed.toFixed(3)} · 冲刺 ${f?.headstartTier??'无'} · 加速窗口 ${f?.turboVisible??false}\n碰顶 ${r.game.ceiling.hit}/${r.game.ceiling.evaded} · 鞋轨迹 ${!!p.sneakersJump} · 翻滚 ${p.rollRemaining.toFixed(3)} · 事件 ${history.join(',')} · 错误 ${[...failures,...r.errors].join('|')||0}`;
+},80);
+document.querySelector('#menu').onclick=()=>{label='原始菜单';reset();};
+function headstartScene(mode){label=mode==='full'?'完整源路线三段冲刺':mode==='turbo'?'二档镜头脉冲':'开局冲刺';const g=reset();frame.contentDocument.querySelector('#headstart').checked=true;frame.contentDocument.querySelector('#start').click();if(mode!=='base')later(()=>g.action('turbo'),3200);if(mode==='full'){later(()=>g.action('turbo'),5400);freeze(16700);}else freeze(mode==='base'?3000:3600);}
+document.querySelector('#headstart').onclick=()=>headstartScene('base');document.querySelector('#turbo').onclick=()=>headstartScene('turbo');document.querySelector('#full').onclick=()=>headstartScene('full');
+function ceiling(ms){label='隔离物理顶碰撞（不是Subway相机区域）';const g=reset(true);g.activatePowerup('sneakers');g.addEntity({type:'overhead',x:0,lane:1,distance:83,width:6,depth:8,bottom:2.3,height:2.8,sourceLayer:'Hit'});g.action('jump');freeze(ms);}
+document.querySelector('#ceiling').onclick=()=>ceiling(450);document.querySelector('#ceiling-end').onclick=()=>ceiling(1300);
+document.querySelector('#roll').onclick=()=>{label='隔离障碍连续翻滚恢复';const g=reset(true);for(let i=0;i<25;i++)later(()=>g.action('roll'),i*130);freeze(4200);};
+document.querySelector('#pause').onclick=()=>r.game.pause();document.querySelector('#portrait').onclick=()=>document.body.classList.toggle('portrait');
+</script></html>

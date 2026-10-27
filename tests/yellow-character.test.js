@@ -39,8 +39,8 @@ test('yellow player contains 26 recovered bone mappings and the original locomot
     assert.equal(animation.extras.sourceDuration, source.duration);
   }
   const pools = JSON.parse(fs.readFileSync(new URL('../public/assets/recovered/classic-motion-pools.json', import.meta.url)));
-  assert.equal(document.animations.length, 44);
-  for (const name of [...Object.values(pools).flat(), 'intro_run', 'idle_paint', 'caught_left_neck', 'caught_right_leg', 'board_left', 'flight_right']) assert.ok(document.animations.some(a => a.name === name), name);
+  assert.equal(document.animations.length, 45);
+  for (const name of [...Object.values(pools).flat(), 'intro_run', 'idle_paint', 'caught_left_neck', 'caught_right_leg', 'board_left', 'flight_right', 'flight_headstart']) assert.ok(document.animations.some(a => a.name === name), name);
 });
 
 test('yellow GLB loads as a skinned, grounded player with normalized four-joint weights', async () => {

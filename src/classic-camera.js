@@ -143,6 +143,7 @@ export class ClassicCamera {
     this.fov = fov ?? classicCameraFov(this.aspect, this.screenAspect).running;
     this.transitionTime = c.transitionSeconds;
     this.modifier = null; this.flight = null; this.shake = null;
+    this.fovTween = null; this.fovPulse = null;
     this.shakeOffset = [0, 0, 0]; this.lastSourceZ = characterPosition[2]; this.speed = 0;
     this.pose = { position: [this.sourcePosition[0], this.sourcePosition[1], this.sourceTarget[2] + c.positionOffset[2]],
       target: [...this.sourceTarget], fov: this.fov };
@@ -179,6 +180,43 @@ export class ClassicCamera {
     this.previousPitch = angles(this.pose.position, this.pose.target).pitch;
     this.transitionTime = 0;
   }
+  sneakersChanged(active) {
+    this.lastSneakers = active;
+    this.startTransformTransition();
+  }
+
+  beginHeadstartFov() {
+    const runningField = classicCameraFov(this.aspect, this.screenAspect).runningField;
+    this.fovTween = { start: this.fov, target: (runningField + 10) / clamp(this.aspect, Math.fround(.56), Math.fround(1.78)),
+      elapsed: 0, duration: 1, reverting: false };
+  }
+  endHeadstartFov() {
+    this.fovTween = { start: this.fov, target: classicCameraFov(this.aspect, this.screenAspect).running,
+      elapsed: 0, duration: 1, reverting: true };
+  }
+  pulseHeadstartFov(duration = Math.fround(.8), multiplier = Math.fround(1.2)) {
+    if (this.fovPulse) return false;
+    this.fovPulse = { start: this.fov, duration, multiplier, elapsed: 0 };
+    return true;
+  }
+  stepFov(dt, { runningOrJetpack = true } = {}) {
+    const tween = this.fovTween;
+    if (tween) {
+      tween.elapsed += dt;
+      this.fov = tween.reverting && !runningOrJetpack ? tween.target
+        : lerp(tween.start, tween.target, tween.elapsed / tween.duration);
+      if (tween.elapsed >= tween.duration || tween.reverting && !runningOrJetpack) this.fovTween = null;
+    }
+    // Two native coroutines may write the same field. Pulse-last ordering is
+    // an explicit browser scheduling adapter; endpoints/times are recovered.
+    const pulse = this.fovPulse;
+    if (pulse) {
+      pulse.elapsed += dt;
+      const u = clamp01(pulse.elapsed / pulse.duration);
+      this.fov = lerp(pulse.start, pulse.start * pulse.multiplier, u <= .5 ? u * 2 : (1 - u) * 2);
+      if (u >= 1) this.fovPulse = null;
+    }
+  }
 
   enterCameraModifier({ startZ, length, evaluateCurve }) {
     if (!Number.isFinite(startZ) || !(length > 0)) throw new RangeError('Invalid camera modifier span');
@@ -213,9 +251,10 @@ export class ClassicCamera {
   step(dt, { position, lastGroundedY = 0, grounded = true, sneakers = false,
     jumperBoard = false, doubleJumping = false, jumpingHigher = false, superVIP2 = false,
     insideSubway = false, subwayMaxY = Infinity, jetpack = null, enabled = true,
-    dontMoveInY = false, shakeSample = [0, 0, 0] } = {}) {
+    dontMoveInY = false, shakeSample = [0, 0, 0], runningOrJetpack = true } = {}) {
     if (!Number.isFinite(dt) || dt < 0 || !position?.every(Number.isFinite)) throw new RangeError('Invalid camera step');
     if (!enabled) return this.snapshot();
+    this.stepFov(dt, { runningOrJetpack });
     const c = this.config;
     if (jetpack?.active) {
       if (this.mode !== 'jetpack') this.beginJetpack(position);

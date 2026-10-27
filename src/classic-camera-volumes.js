@@ -5,54 +5,10 @@
  * units, world +Z. Unity callback/contact timing is adapted to one update call.
  */
 
-function segmentBoxDistanceSquared(a, b, half) {
-  const d = b.map((v, i) => v - a[i]), breaks = [0, 1];
-  for (let i = 0; i < 3; i++) if (Math.abs(d[i]) > 1e-12) {
-    for (const sign of [-1, 1]) {
-      const t = (sign * half[i] - a[i]) / d[i];
-      if (t > 0 && t < 1) breaks.push(t);
-    }
-  }
-  breaks.sort((x, y) => x - y);
-  const distanceAt = t => a.reduce((sum, v, i) => sum + Math.max(0, Math.abs(v + d[i] * t) - half[i]) ** 2, 0);
-  let best = Infinity;
-  for (let j = 0; j < breaks.length - 1; j++) {
-    const lo = breaks[j], hi = breaks[j + 1], mid = (lo + hi) / 2;
-    best = Math.min(best, distanceAt(lo), distanceAt(hi));
-    let numerator = 0, denominator = 0;
-    for (let i = 0; i < 3; i++) {
-      const value = a[i] + d[i] * mid;
-      if (Math.abs(value) <= half[i]) continue;
-      numerator += d[i] * (a[i] - Math.sign(value) * half[i]);
-      denominator += d[i] ** 2;
-    }
-    if (denominator > 0) best = Math.min(best, distanceAt(Math.max(lo, Math.min(hi, -numerator / denominator))));
-  }
-  return best;
-}
+import { overlapsRunnerEntity } from './classic-contact.js';
 
-/** Original r3,h10 CapsuleTrigger (roll h4 clamps to diameter6), scaled .1. */
-export function overlapsSubwayVolume(state, entity) {
-  const p = state.player, rolling = p.rollRemaining > 0;
-  const y = p.y + (rolling ? .4 : .55), segment = rolling ? 0 : .2;
-  const a = [p.x, y - segment, state.distance + .1], b = [p.x, y + segment, state.distance + .1];
-  const shape = entity.sourceShape;
-  if (shape?.type === 'box') {
-    const norms = shape.rows.map(row => Math.hypot(row[0], row[1], row[2]));
-    // Normalized inverse rows are box axes when the source transform has no
-    // shear. The actual exported Subway trigger has identity rotation/scale.
-    for (let i = 0; i < 3; i++) for (let j = i + 1; j < 3; j++) {
-      const dot = shape.rows[i].slice(0, 3).reduce((sum, v, k) => sum + v * shape.rows[j][k], 0) / norms[i] / norms[j];
-      if (Math.abs(dot) > 1e-6) throw new Error('Sheared source Subway trigger is unsupported');
-    }
-    const local = point => shape.rows.map((row, i) =>
-      (row[0] * (point[0] - entity.x) + row[1] * point[1] + row[2] * (point[2] - entity.distance) + row[3]) / norms[i]);
-    return segmentBoxDistanceSquared(local(a), local(b), shape.halfSize.map((v, i) => v / norms[i])) <= .3 ** 2;
-  }
-  const center = [entity.x, ((entity.bottom ?? 0) + entity.height) / 2, entity.distance];
-  return segmentBoxDistanceSquared(a.map((v, i) => v - center[i]), b.map((v, i) => v - center[i]),
-    [entity.width / 2, (entity.height - (entity.bottom ?? 0)) / 2, entity.depth / 2]) <= .3 ** 2;
-}
+// Camera triggers and hazards share the same source CapsuleTrigger dimensions.
+export const overlapsSubwayVolume = overlapsRunnerEntity;
 
 export class ClassicCameraVolumes {
   constructor() { this.reset(); }

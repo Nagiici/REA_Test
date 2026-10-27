@@ -353,6 +353,15 @@ export class SourceRouteGenerator {
     return found;
   }
 
+  /** Current reconstruction emits the identity default Route. Native manager
+   * first requires builder.Bounds.Contains, then InverseTransformPoint; chunk
+   * TrackBounds is 60x90 native, never a train/visual mesh's height. */
+  relativePosition(position, { end = 0 } = {}) {
+    const [x, y, z] = position, scale = this.unitScale;
+    return Math.abs(x) <= 30 * scale && y >= 0 && y <= 90 * scale
+      && z >= this.initialDistance && z <= end ? [...position] : null;
+  }
+
   compileChunk(chunkId, context = {}) {
     const chunk = this.resolveChunk(chunkId);
     const startDistance = context.startDistance ?? 0;

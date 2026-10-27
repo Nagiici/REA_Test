@@ -173,6 +173,7 @@ function start() {
     const fov = classicCameraFov(camera.aspect);
     game.introOptions = { introDuration: pack.manifest.introAnimationAdditions.clips.intro_run.duration,
       startFov: fov.menu, runningFov: fov.runningField, aspect: camera.aspect };
+    game.headstartOnStart = $('headstart').checked;
     game.start();
   }
   if (soundEnabled) gameAudio.enable(true); canvas.focus();
@@ -190,7 +191,8 @@ $('sound').addEventListener('click', async () => {
 $('sound').style.opacity = '.55';
 
 $('board').addEventListener('click', () => { game.action('board'); canvas.focus(); });
-const keyActions = { KeyE: 'board', ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right', ArrowUp: 'jump', KeyW: 'jump', Space: 'jump', ArrowDown: 'roll', KeyS: 'roll' };
+$('turbo').addEventListener('click', () => { game.action('turbo'); canvas.focus(); });
+const keyActions = { KeyT: 'turbo', KeyE: 'board', ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right', ArrowUp: 'jump', KeyW: 'jump', Space: 'jump', ArrowDown: 'roll', KeyS: 'roll' };
 window.addEventListener('keydown', event => {
   if (event.target instanceof HTMLInputElement) return;
   if (keyActions[event.code]) {
@@ -230,6 +232,7 @@ $('character-file').addEventListener('change', async event => {
 
 function updateMenu() {
   const phase = game.state.phase;
+  $('headstart-option').hidden = !['ready', 'gameover'].includes(phase);
   const running = phase === 'intro' || phase === 'running' || phase === 'reviving' || phase === 'gameover' && (game.state.catchRemaining > 0 || game.state.deathGrounding);
   $('menu').classList.toggle('hidden', running);
   $('menu').inert = running;
@@ -289,12 +292,16 @@ function frame(now) {
   for (const [type, name] of Object.entries(POWERUP_NAMES)) {
     const element = $(`effect-${type}`), remaining = s.powerups[type] ?? 0;
     element.hidden = remaining <= 0 && !(type === 'jetpack' && s.flight);
-    element.querySelector('span').textContent = `${name} · ${Math.ceil(remaining)}秒`;
+    element.querySelector('span').textContent = `${type === 'jetpack' && s.flight?.headstart ? '极速起跑' : name} · ${Math.ceil(remaining)}秒`;
     element.querySelector('progress').value = remaining / (type === 'jetpack' ? s.flight?.initialTimeLeft || JETPACK_SECONDS[game.config.powerupTier] : POWERUP_SECONDS[game.config.powerupTier]);
   }
   const board = game.hoverboard.state;
+  $('board').hidden = !!s.flight?.headstart;
   $('board').disabled = s.phase !== 'running' || !game.hoverboard.canActivate;
   $('board').textContent = board.active ? `滑板 ${Math.ceil(board.timeLeft)}秒${s.flight ? ' · 暂停' : ''}` : board.cooldownBlocked ? '滑板冷却中' : `滑板 ×${board.inventory} · E`;
+  $('turbo').hidden = !s.flight?.turboVisible;
+  $('turbo').disabled = s.phase !== 'running' || !s.flight?.turboAvailable;
+  $('turbo').textContent = `再次加速 ${2 - (s.flight?.headstartTier ?? 0)} · T`;
   $('speed-line').style.width = `${(s.speed - game.config.initialSpeed) / (game.config.maximumSpeed - game.config.initialSpeed) * 100}%`;
   const events = game.drainEvents();
   gameAudio.update(s, events);
@@ -303,7 +310,8 @@ function frame(now) {
     if (event.type === 'revive') toast('继续奔跑');
     if (event.type === 'board-start') toast('滑板保护已开启');
     if (event.type === 'board-hit') toast('滑板挡住了撞击');
-    if (event.type === 'powerup') toast(`${POWERUP_NAMES[event.powerup]} · ${Math.ceil(event.duration)}秒`);
+    if (event.type === 'powerup') toast(`${event.headstart ? '极速起跑' : POWERUP_NAMES[event.powerup]} · ${Math.ceil(event.duration)}秒`);
+    if (event.type === 'turbo-headstart' && event.tier > 0) toast(`极速起跑 · 第 ${event.tier + 1} 档`);
   }
   if (loaded) {
     // Static original opening set stays at world origin as the course scrolls.
@@ -355,10 +363,18 @@ function frame(now) {
         cameraController.enterRunning();
       } else if (cameraController.mode === 'external') cameraController.enterRunning();
       if (events.some(e => e.type === 'critical-hit')) cameraController.startShake();
+      for (const event of events) {
+        if (event.powerup === 'sneakers' && ['powerup', 'powerup-end'].includes(event.type))
+          cameraController.sneakersChanged(event.type === 'powerup');
+        if (event.type === 'headstart-start') cameraController.beginHeadstartFov();
+        if (event.type === 'headstart-end') cameraController.endHeadstartFov();
+        if (event.type === 'turbo-headstart') cameraController.pulseHeadstartFov();
+      }
       const shakeSample = cameraController.shake
         ? new THREE.Vector3().randomDirection().multiplyScalar(Math.cbrt(Math.random())).toArray() : [0,0,0];
       cameraController.step(dt, { position: [p.x,p.y,s.distance], lastGroundedY: p.lastGroundedY,
-        grounded: p.grounded, sneakers: !!s.powerups.sneakers, jetpack: s.flight, shakeSample, ...cameraRegion });
+        grounded: p.grounded, sneakers: !!s.powerups.sneakers, jetpack: s.flight, shakeSample,
+        runningOrJetpack: s.phase === 'running', ...cameraRegion });
     }
   }
   const pose = cameraController.snapshot();

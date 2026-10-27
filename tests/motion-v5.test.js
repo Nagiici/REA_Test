@@ -8,7 +8,8 @@ import { createCharacterAnimationController } from '../src/asset-adapter.js';
 function setup() {
   const g = new RunnerGame({ acceleration: 0 }); g.entities = []; g.nextSection = 1e9; g.start();
   const durations = { run: .4, jump: .8, hangtime: .7, landing: .2, roll: .54, dodge_left: .5,
-    board_takeoff: .8, board_jump: .08333396911621094, board_run: .4, board_roll: .54, flight: 1, flight_left: .5 };
+    board_takeoff: .8, board_jump: .08333396911621094, board_run: .4, board_roll: .54, flight: 1, flight_left: .5,
+    flight_headstart: 1.6000003814697266 };
   const mixer = new THREE.AnimationMixer(new THREE.Group());
   const clips = Object.entries(durations).map(([name, duration]) => new THREE.AnimationClip(name, duration,
     [new THREE.NumberKeyframeTrack('.position[x]', [0, duration], [0, 1])]));
@@ -22,6 +23,13 @@ function setup() {
   };
   return { g, actor, motion, select };
 }
+
+test('turbo headstart plays the full original one-shot and queues flight at .2 fade',()=>{
+  const {g,actor,select}=setup();g.activateHeadstart();assert.equal(select().name,'flight');
+  g.action('turbo');const pose=select();assert.equal(pose.name,'flight_headstart');assert.equal(pose.fade,Math.fround(.1));
+  actor.mixer.update(1);assert.equal(select().name,'flight_headstart');
+  actor.mixer.update(.61);const flight=select();assert.equal(flight.name,'flight');assert.equal(flight.fade,Math.fround(.2));
+});
 
 test('queued locomotion follows actual clip completion, not a simulation-clock deadline', () => {
   const { g, actor, select } = setup(); g.action('left'); const dodge = select();

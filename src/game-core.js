@@ -1,13 +1,15 @@
 import { ClassicCollisionState } from './classic-collision.js';
 import { ClassicRevive } from './classic-revive.js';
 import { resolveClassicImpact } from './classic-impact.js';
+import { runnerEntityContact } from './classic-contact.js';
+import { classicVerticalMotion } from './classic-vertical.js';
 import { Jetpack } from './jetpack.js';
 import { makeFlightCoins } from './flight-coins.js';
 import { Hoverboard, HOVERBOARD_BROWSER_ADAPTER } from './hoverboard.js';
 import { DEFAULT_CONFIG } from './config.js';
 import { SourceClassicIntro } from './classic-intro.js';
 import { SourceRollTimeline, runningTransitionFromHeight, rollVerticalSpeed } from './classic-motion.js';
-import { POWERUP_SECONDS, POWERUP_NAMES, SNEAKERS, curveValue, touchesPowerup } from './powerups.js';
+import { POWERUP_SECONDS, POWERUP_NAMES, SNEAKERS, touchesPowerup } from './powerups.js';
 
 const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 
@@ -123,6 +125,7 @@ export class RunnerGame {
     }
     this.state.phase = 'running';
     this.events.push({ type: 'start' });
+    if (this.headstartOnStart) this.activateHeadstart();
   }
 
   pause() {
@@ -135,6 +138,12 @@ export class RunnerGame {
   action(action) {
     if (this.state.phase !== 'running') return false;
     const p = this.state.player;
+    if (action === 'turbo') {
+      if (!this.jetpack.turbo()) return false;
+      this.state.flight = this.jetpack.snapshot();
+      this.events.push({ type: 'turbo-headstart', tier: this.state.flight.headstartTier });
+      return true;
+    }
     if (action === 'board') {
       const activated = this.hoverboard.activate({ flying: !!this.state.flight });
       if (activated) this.events.push({ type: 'board-start', motion: { jumping: p.isJumping, falling: p.isFalling } });
@@ -165,11 +174,13 @@ export class RunnerGame {
     }
     if (action === 'jump') {
       this.endRoll('jump');
+      if (p.isJumping && this.ceiling.evaded) this.ceiling.hit = false;
       p.inAirJump = false; p.isJumping = true; p.isFalling = false;
       p.jumpHeight = this.state.powerups.sneakers > 0 ? SNEAKERS.height : this.config.jumpHeight;
       p.velocityY = Math.sqrt(2 * this.config.gravity * this.config.jumpHeight);
       p.grounded = false;
       if (this.state.powerups.sneakers > 0) {
+        p.velocityY = 0;
         p.sneakersJump = { startY: p.y, startDistance: this.state.distance,
           length: 2 * this.state.speed * Math.sqrt(2 * SNEAKERS.height * this.config.gravity) / this.config.gravity * SNEAKERS.apexRatio };
       }
@@ -177,12 +188,21 @@ export class RunnerGame {
       return true;
     }
     if (action === 'roll') {
-      if (p.rollRemaining > 0) return false;
+      // HandleSwipe's route-height override runs even if Character.Roll early
+      // returns. Route local Y is distinct from floor/roof or lastGroundedY.
+      const routeY = this.routeGenerator?.relativePosition
+        ? this.routeGenerator.relativePosition([p.x, p.y, this.state.distance], { end: this.nextSection })?.[1]
+        : null; // No native Route context: do not invent a high-air override.
+      const highAirSpeed = routeY > 20 ? -Math.sqrt(2 * this.config.gravity * routeY) : null;
+      if (p.rollRemaining > 0) {
+        if (highAirSpeed !== null) p.velocityY = highAirSpeed;
+        return false;
+      }
       p.sneakersJump = null;
       p.inAirJump = false;
       p.velocityY = rollVerticalSpeed({ gravityNative: this.config.gravity * 10, jumpHeightNative: p.jumpHeight * 10,
         transitionFromHeight: p.transitionFromHeight,
-        routeRelativeHeightNative: Number.isFinite(p.routeRelativeY) ? p.routeRelativeY * 10 : null }) * .1;
+        routeRelativeHeightNative: Number.isFinite(routeY) ? routeY * 10 : null }) * .1;
       p.rollRemaining = this.state.board.active ? this.config.boardRollSeconds : this.config.rollSeconds;
       p.rollToken++;
       this.rollTimeline.begin(p.rollRemaining); this.rollAnimation = null;
@@ -236,6 +256,7 @@ export class RunnerGame {
         if (this.state.intro.finished) {
           this.state.phase = 'running';
           this.events.push(...this.state.intro.events, { type: 'start' });
+          if (this.headstartOnStart) this.activateHeadstart();
         }
       }
       else if (this.state.phase === 'running') this.step(dt);
@@ -382,8 +403,19 @@ export class RunnerGame {
     s.elapsed += dt;
     s.levelSpeed = Math.min(c.maximumSpeed, s.levelSpeed + c.acceleration * dt);
     if (s.flight) {
-      const flight = this.jetpack.step(dt, { distance: previousDistance });
+      const oldTarget = s.flight.targetZ;
+      let flight = this.jetpack.step(dt, { distance: previousDistance });
+      if (flight.active && flight.headstart && flight.targetZ !== oldTarget) {
+        const target = this.routeGenerator?.scheduleJetpackLanding?.(flight.targetZ, this.nextSection,
+          c.maximumSpeed * Math.sqrt(2 * 12 / c.gravity) + c.playerRadius + c.maximumSpeed * dt * 2);
+        if (target != null) flight = this.jetpack.extendTarget(target);
+      }
       if (!flight.active) {
+        if (flight.headstart) {
+          // ChangeCurrentSpeed advances speed-ramp age by rampDuration*ratio.
+          s.levelSpeed = Math.min(c.maximumSpeed, s.levelSpeed + (c.maximumSpeed - c.initialSpeed) * flight.speedAgeRatio);
+          this.events.push({ type: 'headstart-end' });
+        }
         s.flight = null; delete s.powerups.jetpack; p.velocityY = 0;
         this.enterRunningFromHeight();
         this.events.push({ type: 'powerup-end', powerup: 'jetpack', motion: { hoverboard: s.board.active } });
@@ -426,14 +458,14 @@ export class RunnerGame {
     const previousY = p.y;
     if (s.flight) {
       p.y = s.flight.y; p.velocityY = 0; p.grounded = false;
-    } else if (p.sneakersJump) {
-      const jump = p.sneakersJump, progress = (s.distance - jump.startDistance) / jump.length;
-      p.y = jump.startY + curveValue(SNEAKERS.curve, progress) * SNEAKERS.height;
-      p.velocityY = 0;
-      if (progress >= 1) p.sneakersJump = null;
     } else {
       p.velocityY -= c.gravity * dt;
-      p.y += p.velocityY * dt;
+      const motion = classicVerticalMotion({ y: p.y, velocityY: p.velocityY, dt, gravity: c.gravity,
+        jumping: p.isJumping, ceiling: this.ceiling,
+        triggerMaxY: p.y + (p.rollRemaining > 0 ? c.rollingBottom + c.rollingHeight : c.standingBottom + c.standingHeight),
+        sneakersJump: p.sneakersJump, oldDistance: previousDistance, nextDistance: s.distance });
+      p.y += motion.dy; p.velocityY = motion.velocityY; p.sneakersJump = motion.sneakersJump;
+      this.ceiling = motion.ceiling;
     }
     const floor = this.surfaceHeight(s.distance, p.x, previousY);
     if (!s.flight && p.y <= floor && p.velocityY <= 0) {
@@ -491,17 +523,18 @@ export class RunnerGame {
       const oldRelative = (e.previousDistance ?? e.distance) - previousDistance - c.triggerForwardOffset;
       const newRelative = e.distance - s.distance - c.triggerForwardOffset;
       const sweptZ = Math.max(oldRelative, newRelative) >= -halfDepth && Math.min(oldRelative, newRelative) <= halfDepth;
-      if (!sweptZ || Math.abs(x - p.x) >= e.width / 2 + c.playerRadius) continue;
-      const contactX = clamp(p.x, x - e.width / 2 + 1e-6, x + e.width / 2 - 1e-6);
-      const contactZ = clamp(s.distance, e.distance - e.depth / 2 + 1e-6, e.distance + e.depth / 2 - 1e-6);
-      const sourceBounds = sourceVerticalBounds(e, contactX, contactZ);
-      if (!sourceBounds) continue;
-      const bottom = sourceBounds.bottom;
-      const top = sourceBounds.top;
-      const triggerBottom = p.y + (p.rollRemaining > 0 ? c.rollingBottom : c.standingBottom);
-      const playerTop = triggerBottom + (p.rollRemaining > 0 ? c.rollingHeight : c.standingHeight);
-      if (playerTop > bottom && triggerBottom < top) {
-        nextContacts.add(e.id);
+      const sweptX = Math.max(previousX, p.x) + c.playerRadius >= x - e.width / 2
+        && Math.min(previousX, p.x) - c.playerRadius <= x + e.width / 2;
+      const triggerHeight = p.rollRemaining > 0 ? c.rollingHeight : c.standingHeight;
+      const triggerOffset = p.rollRemaining > 0 ? c.rollingBottom : c.standingBottom;
+      if (!sweptZ || !sweptX || Math.max(previousY, p.y) + triggerOffset + triggerHeight < (e.bottom ?? 0)
+        || Math.min(previousY, p.y) + triggerOffset > e.height) continue;
+      const contact = runnerEntityContact([previousX, previousY, previousDistance], [p.x, p.y, s.distance],
+        { ...e, x }, p.rollRemaining > 0, c);
+      if (contact) {
+        const [contactX, contactY, contactZ] = contact.position, obstacle = contact.entity;
+        const triggerBottom = contactY + triggerOffset, playerTop = triggerBottom + triggerHeight;
+        if (contact.overlapping) nextContacts.add(e.id);
         if (this.contacts.has(e.id)) continue;
         // A radius-expanded train front overlaps the last part of an adjoining
         // ramp. That shared walkable seam is not a vertical wall. Only waive
@@ -516,9 +549,9 @@ export class RunnerGame {
         const targetX = (p.lane - 1) * c.laneSpacing;
         const trackMovement = Math.abs(targetX - p.x) < 1e-7 ? 0 : Math.sign(targetX - p.x);
         const resolved = resolveClassicImpact({
-          obstacleBounds: { min: [x - e.width / 2, e.bottom ?? bottom, e.distance - e.depth / 2], max: [x + e.width / 2, e.height ?? top, e.distance + e.depth / 2] },
-          characterBounds: { min: [p.x - c.playerRadius, triggerBottom, s.distance + c.triggerForwardOffset - c.playerRadius], max: [p.x + c.playerRadius, playerTop, s.distance + c.triggerForwardOffset + c.playerRadius] },
-          position: [p.x, p.y, s.distance], unitScale: .1, trackMovement,
+          obstacleBounds: { min: [x - e.width / 2, e.bottom ?? 0, obstacle.distance - e.depth / 2], max: [x + e.width / 2, e.height, obstacle.distance + e.depth / 2] },
+          characterBounds: { min: [contactX - c.playerRadius, triggerBottom, contactZ + c.triggerForwardOffset - c.playerRadius], max: [contactX + c.playerRadius, playerTop, contactZ + c.triggerForwardOffset + c.playerRadius] },
+          position: contact.position, unitScale: .1, trackMovement,
           jumping: p.isJumping, grounded: p.grounded, ceiling: this.ceiling,
           lastFixedPosition: this.lastFixedPosition, previousFixedPosition: this.previousFixedPosition,
           obstacleTag: e.sourceTag ?? (e.movingTrain || e.velocityZ ? 'HitMovingTrain' : ''),
@@ -528,7 +561,12 @@ export class RunnerGame {
         let critical = false, movingHit = false;
         for (const action of resolved.actions) {
           if (action.type === 'disableForward') p.canAccelerateForward = false;
-          if (action.type === 'setVerticalSpeed') { p.sneakersJump = null; p.velocityY = action.value; if (action.value > 0) p.grounded = false; }
+          if (action.type === 'setVerticalSpeed') {
+            // Upper contacts retain the shoe curve record until its distance
+            // endpoint. The distinct lower-obstacle hop interrupts it.
+            if (action.value !== 0 || !this.ceiling.hit) p.sneakersJump = null;
+            p.velocityY = action.value; if (action.value > 0) p.grounded = false;
+          }
           if (action.type === 'rebound' && action.direction) {
             p.laneFrom = p.x; p.laneElapsed = 0; p.lane = clamp(p.lane + action.direction, 0, 2);
             p.laneDuration = Math.abs((p.lane - 1) - p.x / c.laneSpacing) * action.durationPerLane;
@@ -599,21 +637,35 @@ export class RunnerGame {
     if (type === 'doubleScore') delete this.state.powerups.doubleScore;
     this.state.baseScore += 30 * this.scoreMultiplier;
     this.state.powerups[type] = POWERUP_SECONDS[clamp(Math.floor(this.config.powerupTier), 0, POWERUP_SECONDS.length - 1)];
-    if (type === 'jetpack') {
-      const s = this.state, p = s.player;
-      let flight = this.jetpack.begin({ distance: s.distance, y: p.y, levelSpeed: s.levelSpeed });
-      const target = this.routeGenerator?.scheduleJetpackLanding?.(flight.targetZ, this.nextSection, s.levelSpeed * Math.sqrt(2 * 9.5 / this.config.gravity) + this.config.playerRadius + s.levelSpeed * this.config.fixedStep * 2);
-      if (target != null) flight = this.jetpack.begin({ distance: s.distance, y: p.y, levelSpeed: s.levelSpeed, minimumTargetZ: target });
-      s.flight = flight; s.speed = flight.speed; s.powerups.jetpack = flight.timeLeft;
-      this.endRoll('jetpack');
-      p.sneakersJump = null; p.grounded = false; p.velocityY = 0;
-      this.hoverboard.state.flying = true;
-      const start = flight.coinStartDistance;
-      for (const coin of makeFlightCoins({ start, length: Math.max(0, flight.coinLength), height: 9.5, random: this.random }).coins) this.addEntity(coin);
-    }
+    if (type === 'jetpack') this.beginFlight(false);
     this.state.score = this.state.baseScore + this.state.coins * this.rawMultiplier * 2;
     this.events.push({ type: 'powerup', powerup: type, duration: this.state.powerups[type] });
     return true;
+  }
+
+  activateHeadstart() {
+    if (this.state.phase !== 'running' || this.state.flight) return false;
+    this.beginFlight(true);
+    this.events.push({ type: 'headstart-start' }, { type: 'turbo-headstart', tier: 0 },
+      { type: 'powerup', powerup: 'jetpack', headstart: true, duration: this.state.flight.timeLeft });
+    return true;
+  }
+
+  beginFlight(headstart) {
+    const s = this.state, p = s.player;
+    let flight = this.jetpack.begin({ distance: s.distance, y: p.y, levelSpeed: s.levelSpeed, headstart });
+    const landingSpeed = headstart ? this.config.maximumSpeed : s.levelSpeed;
+    const target = this.routeGenerator?.scheduleJetpackLanding?.(flight.targetZ, this.nextSection,
+      landingSpeed * Math.sqrt(2 * (headstart ? 12 : 9.5) / this.config.gravity) + this.config.playerRadius + landingSpeed * this.config.fixedStep * 2);
+    if (target != null) flight = this.jetpack.extendTarget(target);
+    s.flight = flight; s.speed = flight.speed; s.powerups.jetpack = flight.timeLeft;
+    this.endRoll('jetpack');
+    p.sneakersJump = null; p.grounded = false; p.velocityY = 0;
+    this.hoverboard.state.flying = true;
+    // Headstart bypasses the ordinary jetpack coin-line branch. Its separate
+    // account-gated end rewards are outside this local demo.
+    if (!headstart) for (const coin of makeFlightCoins({ start: flight.coinStartDistance,
+      length: Math.max(0, flight.coinLength), height: 9.5, random: this.random }).coins) this.addEntity(coin);
   }
 
   attractCoin(coin) {

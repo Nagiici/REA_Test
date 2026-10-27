@@ -15,3 +15,4 @@
 
 /* Menu and results own their scores; keep HUD out of the title area. */
 body.menu-open .scoreboard { visibility: hidden; }
+.headstart-option{display:flex;align-items:center;flex-wrap:wrap;gap:8px;max-width:340px;margin:15px 0;color:#e1ead7;font-size:13px;cursor:pointer}.headstart-option input{accent-color:#e9c959;width:16px;height:16px}.headstart-option small{font-size:10px;opacity:.75}.headstart-option[hidden],.board-button[hidden]{display:none}

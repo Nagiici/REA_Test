@@ -113,12 +113,17 @@ export class PlayerMotion {
       if (event.type === 'powerup' && event.powerup === 'jetpack') {
         // OnSwitchToJetpack82192 immediately CrossFades the new bank's Run.
         this.pose = null; this.air = null; this.rollPose = null; this.airReturnRun = false;
+        this.returnFade = .1;
       }
       if (event.type === 'powerup-end' && event.powerup === 'jetpack') {
         // JetpackOnStop82195 restores the bank then explicitly invokes
         // Hangtime, before gravity can emit its later falling notification.
         hangtime(event.motion?.hoverboard ?? state.board.active,
           (event.motion?.hoverboard ?? state.board.active) ? .2 : SOURCE.hangtimeFade);
+      }
+      if (event.type === 'turbo-headstart' && event.tier > 0) {
+        this.rollPose = null;
+        transient('flight_headstart', Math.fround(.1), Math.fround(.2));
       }
     }
     // A stumble clip is interruptible by later native notifications. Keeping
@@ -129,7 +134,7 @@ export class PlayerMotion {
     }
     if (this.isPlaying(this.pose, actor, now)) return this.pose;
     this.pose = null;
-    if (state.flight) return { name: 'flight' };
+    if (state.flight) return { name: 'flight', fade: this.returnFade };
     if (p.rollRemaining > 0) {
       const roll = this.rollPose ?? { name: state.board.active ? 'board_roll' : 'roll', token: p.rollToken, fade: SOURCE.rollFade };
       return { ...roll, duration: duration(roll.name) };
