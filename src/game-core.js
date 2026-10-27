@@ -3,8 +3,9 @@ import { ClassicRevive } from './classic-revive.js';
 import { resolveClassicImpact } from './classic-impact.js';
 import { runnerEntityContact } from './classic-contact.js';
 import { trainBodyAt } from './classic-train-body.js';
+import { moveControllerSwept } from './classic-controller-move.js';
 import { classicVerticalMotion } from './classic-vertical.js';
-import { CLASSIC_CONTROLLER, controllerInterval, expandController, moveControllerLateral } from './classic-controller.js';
+import { CLASSIC_CONTROLLER, controllerInterval, expandController } from './classic-controller.js';
 import { Jetpack } from './jetpack.js';
 import { makeFlightCoins } from './flight-coins.js';
 import { makeHeadstartRewards } from './headstart-rewards.js';
@@ -373,7 +374,7 @@ export class RunnerGame {
     const outcome = this.collisionState.stumble({ ...options, flying: !!this.state.flight, running: this.state.phase === 'running' });
     this.state.stumble = this.collisionState.snapshot();
     if (outcome.stumbled) {
-      if (!options.bush) this.lastStumbleContact = { entity: options.collider ?? null, at: this.state.elapsed };
+      if (!options.bush) this.lastStumbleContact = { entity: options.collider ?? null, at: this.state.elapsed, vertical: options.vertical };
       this.setReaction(name, duration); this.events.push({ type: 'stumble', animation: name, reason: outcome.reason,
         horizontal: options.horizontal, vertical: options.vertical, critical: options.animationCritical }); }
     if (outcome.fatal) this.fatalHit({ type: 'critical-hit' });
@@ -534,18 +535,21 @@ export class RunnerGame {
       // immediately, before the next ApplyGravity would notify a landing.
       if (p.inAirJump) { p.transitionFromHeight = false; this.action('jump'); }
     } else p.grounded = false;
-    // The smaller physical capsule prevents sustained lane motion into a
-    // solid train side, even after its larger trigger has already fired.
-    // Trigger sweeps below use the accepted motion, not a path through walls.
-    if (!s.flight && p.controllerEnabled && Math.abs(p.x - previousX) > 1e-8) {
-      const solids = this.entities.map(e => ({ ...trainBodyAt(e, s.distance),
-        x: e.x ?? (e.lane - 1) * c.laneSpacing }));
-      const lateral = moveControllerLateral([previousX, p.y, s.distance], p.x - previousX, p.colliderSqueezed, solids);
-      if (lateral.blocked) {
-        p.x = lateral.x;
-        floor = this.surfaceHeight(s.distance, p.x, previousY);
-        p.grounded = p.y <= floor + 1e-8 && p.velocityY <= 0;
+    // Resolve the combined XYZ movement. A trigger stumble cannot stop a
+    // physical capsule from entering a train, and final-Z lateral tests miss
+    // diagonal front corners. Moving queries follow actual accepted progress.
+    this.controllerMove = null;
+    if (!s.flight && p.controllerEnabled) {
+      const solids = this.entities.map(e => ({ ...e, x: e.x ?? (e.lane - 1) * c.laneSpacing }));
+      const physical = moveControllerSwept([previousX, previousY, previousDistance], [p.x, p.y, s.distance], p.colliderSqueezed, solids, {ground:this.groundPlaneAt(s.distance,p.x)});
+      [p.x, p.y, s.distance] = physical.position;
+      for (const e of this.entities) {
+        if (e.movingTrain && !e.trainAutopilot) e.distance = e.movingTrain.initialDistance - (s.distance - e.movingTrain.referencePlayerDistance) * e.movingTrain.ratio;
       }
+      floor = this.surfaceHeight(s.distance, p.x, p.y);
+      if (p.y < floor + 1e-6 && p.y >= floor - 1e-6) p.y = floor;
+      p.grounded = Math.abs(p.y - floor) < 1e-6 && (p.velocityY <= 0 || crossedRamp > -Infinity);
+      this.controllerMove = physical;
     }
     p.floor = floor;
 
@@ -607,10 +611,19 @@ export class RunnerGame {
       const contact = runnerEntityContact([previousX, previousY, previousDistance], [p.x, p.y, s.distance],
         { ...e, x }, p.colliderSqueezed, c);
       if (contact) {
-        const [contactX, contactY, contactZ] = contact.position, obstacle = contact.entity;
+        const persistent = this.contacts.has(e.id);
+        // Browser physical continuation: a lower brush followed by falling
+        // against the same front face must not leave the runner frozen there.
+        // Reclassify only this real blocking transition; ordinary Stay never
+        // repeats Enter, and a continuing low brush does not repeat a stumble.
+        const blockedBrush = persistent && this.lastStumbleContact?.entity?.id === e.id
+          && this.lastStumbleContact.vertical === 'Lower'
+          && this.controllerMove?.contacts.some(hit => hit.id === e.id && hit.normal[2] < -.5);
+        const contactPosition = blockedBrush ? [p.x, p.y, s.distance] : contact.position;
+        const [contactX, contactY, contactZ] = contactPosition, obstacle = blockedBrush ? e : contact.entity;
         const triggerBottom = contactY + triggerOffset, playerTop = triggerBottom + triggerHeight;
         if (contact.overlapping) nextContacts.add(e.id);
-        if (this.contacts.has(e.id)) continue;
+        if (persistent && !blockedBrush) continue;
         // A radius-expanded train front overlaps the last part of an adjoining
         // ramp. That shared walkable seam is not a vertical wall. Only waive
         // the front contact while grounded on the matching supporting ramp;
@@ -626,12 +639,13 @@ export class RunnerGame {
         const resolved = resolveClassicImpact({
           obstacleBounds: { min: [x - e.width / 2, e.bottom ?? 0, obstacle.distance - e.depth / 2], max: [x + e.width / 2, e.height, obstacle.distance + e.depth / 2] },
           characterBounds: { min: [contactX - c.playerRadius, triggerBottom, contactZ + c.triggerForwardOffset - c.playerRadius], max: [contactX + c.playerRadius, playerTop, contactZ + c.triggerForwardOffset + c.playerRadius] },
-          position: contact.position, unitScale: .1, trackMovement,
+          position: contactPosition, unitScale: .1, trackMovement,
           jumping: p.isJumping, grounded: p.grounded, ceiling: this.ceiling,
           lastFixedPosition: this.lastFixedPosition, previousFixedPosition: this.previousFixedPosition,
           obstacleTag: e.sourceTag ?? (e.movingTrain || e.velocityZ ? 'HitMovingTrain' : ''),
           obstacleLayer: e.sourceLayer ?? 'Hit', isTrigger: !!e.sourceIsTrigger, gravityNative: c.gravity / .1,
         });
+        if (persistent && !resolved.actions.some(action => action.type === 'criticalHit')) continue;
         this.ceiling = resolved.ceiling;
         let movingHit = false;
         for (const action of resolved.actions) {

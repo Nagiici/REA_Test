@@ -25,7 +25,7 @@ export function moveControllerLateral(position, dx, rolling, entities) {
   if (Math.abs(dx) < EPS) return { x: position[0], blocked: false };
   let fraction = 1;
   for (const e of entities) {
-    if (!controllerSolid(e) || e.type === 'ramp') continue;
+    if (!controllerSolid(e)) continue;
     const height = rolling ? CLASSIC_CONTROLLER.rollingHeight : CLASSIC_CONTROLLER.standingHeight;
     if (position[1] >= e.height - EPS || position[1] + height <= (e.bottom ?? 0) + EPS
       || Math.abs(position[2] - e.distance) > e.depth / 2 + radius
