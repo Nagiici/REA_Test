@@ -32,7 +32,7 @@ test('board absorbs one fatal hit, clears upcoming hazards and rearms by distanc
   assert.equal(g.state.phase,'running');assert.equal(g.state.board.active,false);assert.equal(g.state.board.inventory,2);
   assert.equal(g.entities.filter(e=>e.type==='train').length,0);assert.ok(g.state.player.velocityY>0);
   assert.equal(g.action('board'),false);frames(g,1.2);assert.equal(g.action('board'),true);
-  for(let i=0;i<30;i++){g.action('roll');frames(g,.1);}assert.equal(g.state.phase,'running');assert.ok(g.state.player.rollRemaining>0);
+  let accepted=0;for(let i=0;i<30;i++){if(g.action('roll'))accepted++;frames(g,.1);}assert.equal(g.state.phase,'running');assert.ok(accepted>=4);assert.ok(accepted<30);
   frames(g,1);assert.equal(g.state.player.rollRemaining,0);
 });
 

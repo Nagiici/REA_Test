@@ -10,10 +10,10 @@ const report=JSON.parse(fs.readFileSync(new URL('../public/assets/character/red-
 async function load(){const d=structuredClone(doc);delete d.materials;delete d.textures;delete d.images;delete d.samplers;for(const m of d.meshes)for(const p of m.primitives)delete p.material;let j=Buffer.from(JSON.stringify(d));j=Buffer.concat([j,Buffer.alloc((4-j.length%4)%4,32)]);const binary=bytes.subarray(20+length),h=Buffer.from(bytes.subarray(0,20));h.writeUInt32LE(20+j.length+binary.length,8);h.writeUInt32LE(j.length,12);return characterFromGLB(Uint8Array.from(Buffer.concat([h,j,binary])).buffer,{name:'红鼻子追逐者'});}
 function box(actor){actor.object.updateMatrixWorld(true);return new THREE.Box3().setFromObject(actor.object,true);}
 test('runtime red-nose model retains full-body bounds with original guard clip provenance and a bounded mesh budget',()=>{
- assert.ok(bytes.length<4_000_000);assert.ok(report.triangles<80000);assert.equal(doc.skins[0].joints.length,18);assert.equal(doc.animations.length,7);
+ assert.ok(bytes.length<4_500_000);assert.ok(report.triangles<80000);assert.equal(doc.skins[0].joints.length,18);assert.equal(doc.animations.length,12);
  assert.deepEqual(doc.asset.extras.replaces,['guard','dog']);
  const p=doc.accessors[doc.meshes[0].primitives[0].attributes.POSITION];assert.ok(p.max[1]>.49&&p.min[1]<-.49);assert.ok(p.min[2]<-.44&&p.max[2]>.44,'Tail and nose extents retained');
- for(const a of doc.animations){const source=JSON.parse(fs.readFileSync(new URL(`../public/assets/recovered/chaser_guard_${a.name}.animation.json`,import.meta.url)));assert.deepEqual(a.extras.source,source.source);assert.equal(a.extras.sourceDuration,source.duration);assert.ok(a.channels.every(c=>c.target.path!=='scale'));}
+ for(const a of doc.animations){const source=JSON.parse(fs.readFileSync(new URL(`../public/assets/recovered/${a.name.startsWith('guard_') ? a.name : `chaser_guard_${a.name}`}.animation.json`,import.meta.url)));assert.deepEqual(a.extras.source,source.source);assert.equal(a.extras.sourceDuration,source.duration);assert.ok(a.channels.every(c=>c.target.path!=='scale'));}
 });
 test('red-nose skin has valid normalized weights, grounded feet and animated legs over repeated runs',async()=>{
  const actor=await load();let vertices=0;

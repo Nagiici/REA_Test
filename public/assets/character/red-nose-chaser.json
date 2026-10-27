@@ -1,8 +1,8 @@
 {
   "input": "outputs/red-nose-character-20261027/red-nose-character.glb",
   "output": "web/public/assets/character/red-nose-chaser.glb",
-  "bytes": 3647004,
-  "sha256": "60d0366c907c58a899e09f86cd4e07d9c7d0e606ae695f6b473419ee426d81e0",
+  "bytes": 4051752,
+  "sha256": "f711c54e6c9d9af75085c970553f8441d2ebf86664222ef0e4425cd3ae82750d",
   "sourceTriangles": 2000000,
   "triangles": 74992,
   "vertices": 39946,
@@ -248,13 +248,68 @@
       "frames": 88,
       "lowest": -0.49947330355644226,
       "highest": 0.516623389848904
+    },
+    {
+      "name": "guard_caught_right_pickup",
+      "source": {
+        "asset": "8b1ac1da32689e3448367b0ef5aa9b84",
+        "pathId": "3"
+      },
+      "duration": 3.9200000762939453,
+      "frames": 354,
+      "lowest": -0.49947330355644226,
+      "highest": 0.5546879918955587
+    },
+    {
+      "name": "guard_caught_shoulder",
+      "source": {
+        "asset": "8b1ac1da32689e3448367b0ef5aa9b84",
+        "pathId": "1"
+      },
+      "duration": 4,
+      "frames": 361,
+      "lowest": -0.49947330355644226,
+      "highest": 0.5666423651124458
+    },
+    {
+      "name": "guard_caught_left_pickup",
+      "source": {
+        "asset": "8b1ac1da32689e3448367b0ef5aa9b84",
+        "pathId": "2"
+      },
+      "duration": 3.9200000762939453,
+      "frames": 354,
+      "lowest": -0.49947330355644226,
+      "highest": 0.514019446078356
+    },
+    {
+      "name": "guard_intro",
+      "source": {
+        "asset": "3ddf79e8f87740f41bc3ff517ea604fa",
+        "pathId": "8"
+      },
+      "duration": 1.1600000858306885,
+      "frames": 106,
+      "lowest": -0.49947330355644226,
+      "highest": 0.5652604427428392
+    },
+    {
+      "name": "guard_roll",
+      "source": {
+        "asset": "f9543d6023b34ae4385ec089fc3ac988",
+        "pathId": "1"
+      },
+      "duration": 0.8400001525878906,
+      "frames": 77,
+      "lowest": -0.49947330355644226,
+      "highest": 0.593607747316719
     }
   ],
   "provenance": {
     "sourceTask": "37e98af3991e4cacb6817b0fd75413cb",
     "sourceSha256": "a4af1343209c0a90f05cb7d45fc2a2fde2b60e4fe6865f724d277822fbe5812c",
     "source": "User-generated Hi3D red nose full body; original downloaded GLB preserved",
-    "motion": "Recovered Subway Surfers 7.07.0 guard rig and seven source clips; visual retarget, not original guard body",
+    "motion": "Recovered Subway Surfers 7.07.0 guard rig and source classic/catch clips; visual retarget, not original guard body",
     "adaptations": [
       "75k target triangle reduction",
       "2048px albedo from original 8192px texture",

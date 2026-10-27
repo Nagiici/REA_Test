@@ -15,7 +15,7 @@ function emptyGame() {
 
 function reachEdge(game, direction = 'left') {
   assert.equal(game.action(direction), true);
-  ticks(game, 30);
+  ticks(game, Math.ceil(game.state.player.laneDuration / STEP));
   assert.equal(game.state.player.x, direction === 'left' ? -2 : 2);
 }
 
@@ -76,7 +76,7 @@ test('approaching a train front remains a fatal solid collision', () => {
   ticks(game, 60);
   assert.equal(game.state.phase, 'gameover');
   assert.equal(game.state.collision.type, 'train');
-  assert.equal(game.events.filter(event => event.type === 'stumble').length, 0);
+  assert.equal(game.events.filter(event => event.type === 'stumble').length, 1, 'native fatal front hit notifies stumble before critical hit');
   assert.equal(game.events.filter(event => event.type === 'crash').length, 1);
 });
 

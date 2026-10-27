@@ -2,8 +2,8 @@
   "input": "outputs/yellow-character-47e54de8/yellow-character-full-body.glb",
   "output": "web/public/assets/character/yellow-runner.glb",
   "sourceBytes": 58272900,
-  "bytes": 6988784,
-  "sha256": "7ef0fb7d93bc207991b1dc8c8ddabf5940f8a431b284917526f4335301490d4c",
+  "bytes": 8955604,
+  "sha256": "6e47261d1896ef013fd5938832145971e8ed60446b04709fa30918a7171f15bf",
   "bones": [
     {
       "name": "Root_jnt",
@@ -391,6 +391,66 @@
       ]
     },
     {
+      "name": "board_left",
+      "source": {
+        "asset": "e4b92f6a0ec194245842d09e40b10939",
+        "pathId": "19"
+      },
+      "duration": 0.5416679382324219,
+      "frames": 67,
+      "mappedBones": 26,
+      "maximumHeight": 1.4165983172988668,
+      "groundCorrection": [
+        -0.06023114024790088,
+        0.33633944017723616
+      ]
+    },
+    {
+      "name": "board_right",
+      "source": {
+        "asset": "e4b92f6a0ec194245842d09e40b10939",
+        "pathId": "20"
+      },
+      "duration": 0.5416679382324219,
+      "frames": 67,
+      "mappedBones": 26,
+      "maximumHeight": 1.4134901384487664,
+      "groundCorrection": [
+        -0.14501347129703368,
+        0.22514354719269924
+      ]
+    },
+    {
+      "name": "flight_left",
+      "source": {
+        "asset": "e4c3ca70f6c5abf4bb75b6eadadefe49",
+        "pathId": "4"
+      },
+      "duration": 0.39999985694885254,
+      "frames": 49,
+      "mappedBones": 26,
+      "maximumHeight": 0.9132936180028663,
+      "groundCorrection": [
+        -0.09487993079087398,
+        0.23792989504906426
+      ]
+    },
+    {
+      "name": "flight_right",
+      "source": {
+        "asset": "e4c3ca70f6c5abf4bb75b6eadadefe49",
+        "pathId": "5"
+      },
+      "duration": 0.39999985694885254,
+      "frames": 49,
+      "mappedBones": 26,
+      "maximumHeight": 0.9175481078855134,
+      "groundCorrection": [
+        -0.10163874612456025,
+        0.2202737952368523
+      ]
+    },
+    {
       "name": "death_bounce",
       "source": {
         "asset": "1cd628b8f10d83f4bbeb5df411698bbc",
@@ -553,6 +613,276 @@
       "groundCorrection": [
         0.0974373556655036,
         0.17682007006292855
+      ]
+    },
+    {
+      "name": "caught_right_neck",
+      "source": {
+        "asset": "b19f985c10116954596e50f67ac696a3",
+        "pathId": "5"
+      },
+      "duration": 3.9200000762939453,
+      "frames": 472,
+      "mappedBones": 26,
+      "maximumHeight": 1.4644840965605284,
+      "groundCorrection": [
+        0,
+        0.36428688513834206
+      ]
+    },
+    {
+      "name": "caught_right_leg",
+      "source": {
+        "asset": "b19f985c10116954596e50f67ac696a3",
+        "pathId": "3"
+      },
+      "duration": 3.9200000762939453,
+      "frames": 472,
+      "mappedBones": 26,
+      "maximumHeight": 1.540450970059259,
+      "groundCorrection": [
+        0.056448633387852554,
+        0.5155282100061005
+      ]
+    },
+    {
+      "name": "caught_left_neck",
+      "source": {
+        "asset": "b19f985c10116954596e50f67ac696a3",
+        "pathId": "6"
+      },
+      "duration": 3.9200000762939453,
+      "frames": 472,
+      "mappedBones": 26,
+      "maximumHeight": 1.476756192094376,
+      "groundCorrection": [
+        0,
+        0.5143438226460311
+      ]
+    },
+    {
+      "name": "caught_left_leg",
+      "source": {
+        "asset": "b19f985c10116954596e50f67ac696a3",
+        "pathId": "4"
+      },
+      "duration": 3.9200000762939453,
+      "frames": 472,
+      "mappedBones": 26,
+      "maximumHeight": 1.5648523368773257,
+      "groundCorrection": [
+        0.04156737198263527,
+        0.4305471469866622
+      ]
+    },
+    {
+      "name": "caught_shoulder",
+      "source": {
+        "asset": "b19f985c10116954596e50f67ac696a3",
+        "pathId": "2"
+      },
+      "duration": 4,
+      "frames": 481,
+      "mappedBones": 26,
+      "maximumHeight": 1.5822582394562237,
+      "groundCorrection": [
+        0,
+        0.5932184791001247
+      ]
+    },
+    {
+      "name": "jump_salto",
+      "source": {
+        "asset": "e4b92f6a0ec194245842d09e40b10939",
+        "pathId": "38"
+      },
+      "duration": 1,
+      "frames": 121,
+      "mappedBones": 26,
+      "maximumHeight": 1.4069797796306598,
+      "groundCorrection": [
+        -0.40052779707990305,
+        0.22336835491237061
+      ]
+    },
+    {
+      "name": "jump2",
+      "source": {
+        "asset": "05f1981d04b7bfc458f75500139fa879",
+        "pathId": "1"
+      },
+      "duration": 0.75,
+      "frames": 91,
+      "mappedBones": 26,
+      "maximumHeight": 1.3979304104690562,
+      "groundCorrection": [
+        -0.09469733544871484,
+        0.10682304648705176
+      ]
+    },
+    {
+      "name": "jump3",
+      "source": {
+        "asset": "e4b92f6a0ec194245842d09e40b10939",
+        "pathId": "40"
+      },
+      "duration": 0.7500076293945312,
+      "frames": 92,
+      "mappedBones": 26,
+      "maximumHeight": 1.3979286920681107,
+      "groundCorrection": [
+        -0.2246679073125477,
+        0.09144733843913333
+      ]
+    },
+    {
+      "name": "landing",
+      "source": {
+        "asset": "e4b92f6a0ec194245842d09e40b10939",
+        "pathId": "4"
+      },
+      "duration": 0.16666698455810547,
+      "frames": 22,
+      "mappedBones": 26,
+      "maximumHeight": 1.4586889519208444,
+      "groundCorrection": [
+        0.05838350304532447,
+        0.15087160964981727
+      ]
+    },
+    {
+      "name": "landing3",
+      "source": {
+        "asset": "e4b92f6a0ec194245842d09e40b10939",
+        "pathId": "43"
+      },
+      "duration": 0.20833587646484375,
+      "frames": 27,
+      "mappedBones": 26,
+      "maximumHeight": 1.408655580072441,
+      "groundCorrection": [
+        -0.058754492008375014,
+        0.15285233105553386
+      ]
+    },
+    {
+      "name": "run2",
+      "source": {
+        "asset": "e4b92f6a0ec194245842d09e40b10939",
+        "pathId": "29"
+      },
+      "duration": 0.4166679382324219,
+      "frames": 52,
+      "mappedBones": 26,
+      "maximumHeight": 1.2096394956555083,
+      "groundCorrection": [
+        -0.05478417954858905,
+        0.1377930145016073
+      ]
+    },
+    {
+      "name": "run3",
+      "source": {
+        "asset": "e4b92f6a0ec194245842d09e40b10939",
+        "pathId": "30"
+      },
+      "duration": 0.4166679382324219,
+      "frames": 52,
+      "mappedBones": 26,
+      "maximumHeight": 1.089900185787708,
+      "groundCorrection": [
+        0.026255850819132842,
+        0.1766891653417877
+      ]
+    },
+    {
+      "name": "run4_long",
+      "source": {
+        "asset": "e4b92f6a0ec194245842d09e40b10939",
+        "pathId": "39"
+      },
+      "duration": 4.583335876464844,
+      "frames": 552,
+      "mappedBones": 26,
+      "maximumHeight": 1.4805200361397095,
+      "groundCorrection": [
+        -0.14191153855877214,
+        0.1780192864912986
+      ]
+    },
+    {
+      "name": "hangtime",
+      "source": {
+        "asset": "da3c1ceb0ec2491488c83a61e0625687",
+        "pathId": "1"
+      },
+      "duration": 0.5000004768371582,
+      "frames": 62,
+      "mappedBones": 26,
+      "maximumHeight": 1.372393192907528,
+      "groundCorrection": [
+        0.025072230359992842,
+        0.06978410361401688
+      ]
+    },
+    {
+      "name": "hangtime2",
+      "source": {
+        "asset": "d9cbf92c1e915b74cb2c3e3eb5938576",
+        "pathId": "1"
+      },
+      "duration": 0.5416667461395264,
+      "frames": 67,
+      "mappedBones": 26,
+      "maximumHeight": 1.2636909335235842,
+      "groundCorrection": [
+        -0.09279481055695804,
+        -0.05543609714587927
+      ]
+    },
+    {
+      "name": "hangtime3",
+      "source": {
+        "asset": "e4b92f6a0ec194245842d09e40b10939",
+        "pathId": "42"
+      },
+      "duration": 0.5416717529296875,
+      "frames": 67,
+      "mappedBones": 26,
+      "maximumHeight": 1.1632770220467865,
+      "groundCorrection": [
+        -0.2252428136757908,
+        -0.007083057060601972
+      ]
+    },
+    {
+      "name": "dodge_left",
+      "source": {
+        "asset": "e4b92f6a0ec194245842d09e40b10939",
+        "pathId": "2"
+      },
+      "duration": 0.5000009536743164,
+      "frames": 62,
+      "mappedBones": 26,
+      "maximumHeight": 1.3979303149012356,
+      "groundCorrection": [
+        -0.3275703466458918,
+        0.17644016939463736
+      ]
+    },
+    {
+      "name": "dodge_right",
+      "source": {
+        "asset": "e4b92f6a0ec194245842d09e40b10939",
+        "pathId": "3"
+      },
+      "duration": 0.5000009536743164,
+      "frames": 62,
+      "mappedBones": 26,
+      "maximumHeight": 1.397930399154412,
+      "groundCorrection": [
+        -0.3190608498243821,
+        0.10754410001930226
       ]
     }
   ],

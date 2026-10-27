@@ -125,7 +125,7 @@ function characterFromUnity(meshes, rig, texture, animations) {
     const next = actions[name];
     if (!next) return;
     next.reset();
-    if (['run', 'roll', 'flight', 'board_run', 'board_roll'].includes(name)) {
+    if (['run', 'roll', 'flight', 'board_run', 'board_roll'].includes(name) || /^run\d/.test(name)) {
       next.setLoop(THREE.LoopRepeat); next.clampWhenFinished = false;
       if (name === 'roll') next.setDuration(duration || clips[name].duration);
       else next.timeScale = 1;
@@ -251,6 +251,9 @@ export async function loadRecoveredPack(base = '/assets/recovered/', { includeCh
   }
   const environmentPath = manifest.environmentBindings ?? routeLibrary?.environmentBindingsFile;
   const environmentBindings = environmentPath ? await fetchJson(base + (typeof environmentPath === 'string' ? environmentPath : environmentPath.file)) : null;
+  const classicBindings = manifest.classicAnimationParameters ? await fetchJson(base + manifest.classicAnimationParameters) : null;
+  const classicAudio = manifest.classicAudio ? await fetchJson(base + manifest.classicAudio) : null;
+  const classicMotionPools = manifest.classicMotionPools ? await fetchJson(base + manifest.classicMotionPools) : {};
   const character = characterFromUnity({ jake_Mesh: meshData.jake_Mesh, jake_head: meshData.jake_head }, rig, textures.jake_tex_low, animations);
   const chasers = Object.fromEntries(await Promise.all(Object.entries(includeChasers ? manifest.chaserActors ?? {} : {}).map(async ([name, info]) => {
     const [actorRig, actorClips] = await Promise.all([fetchJson(base + info.rig.file), Promise.all(Object.entries(info.animations).map(async ([key, value]) => [key, await fetchJson(base + value.file)]))]);
@@ -282,7 +285,7 @@ export async function loadRecoveredPack(base = '/assets/recovered/', { includeCh
     props[name] = wrapper;
   }
   const prefabs = Object.fromEntries(Object.entries(prefabData).map(([name, data]) => [name, prefabFromUnity(data, meshData, textures, manifest)]));
-  return { manifest, character, chasers, props, prefabs, prefabData, textures, meshData, routeLibrary, environmentBindings,
+  return { manifest, character, chasers, props, prefabs, prefabData, textures, meshData, routeLibrary, environmentBindings, classicBindings, classicAudio, classicMotionPools,
     cloneProp: name => props[name]?.clone(true), clonePrefab: name => prefabs[name]?.clone(true) };
 }
 
@@ -303,26 +306,44 @@ export async function characterFromGLB(buffer, { name = '自定义角色', sourc
   const mixer = new THREE.AnimationMixer(native);
   const actions = new Map();
   for (const clip of gltf.animations) actions.set(clip.name, mixer.clipAction(clip));
-  let playing = null, playingToken = null;
-  function setAnimation(name, duration, token = null) {
+  let playing = null, playingToken = null, catchBase = null;
+  function setAnimation(name, duration, token = null, options = {}) {
     const fallback = name.startsWith('board_') ? name.slice(6) : name === 'flight' ? 'jump' : name;
     const match = actions.has(name) ? name : actions.has(fallback) ? fallback : [...actions.keys()].find(key => key.toLowerCase().includes(fallback)) ?? [...actions.keys()][0];
     if (!match || playing === match && playingToken === token) return;
-    const action = actions.get(match); action.reset();
-    // The simulation owns rollRemaining and may extend it on repeated input.
-    // Keep rolling until that state ends; a clamped one-shot would freeze.
-    if (['run', 'roll', 'flight', 'board_run', 'board_roll'].includes(name)) {
+    const action = actions.get(match); action.reset().setEffectiveWeight(1);
+    // Physics owns the source roll deadline. Looping through the final fixed
+    // step avoids a clamped frozen pose; new accepted rolls have new tokens.
+    if (['run', 'roll', 'flight', 'board_run', 'board_roll'].includes(name) || /^run\d/.test(name)) {
       action.setLoop(THREE.LoopRepeat); action.clampWhenFinished = false;
       if (name.endsWith('roll')) action.setDuration(duration || action.getClip().duration);
       else action.timeScale = 1;
     }
     else { action.setLoop(THREE.LoopOnce, 1); action.clampWhenFinished = true; action.setDuration(duration || action.getClip().duration); }
     action.play();
-    if (playing && playing !== match) actions.get(playing).crossFadeTo(action, 0.08, false);
+    if (playing && playing !== match) actions.get(playing).crossFadeTo(action, options.fade ?? 0.08, false);
     playing = match; playingToken = token;
   }
+  function setTimeScale(value) { if (playing) actions.get(playing).setEffectiveTimeScale(value); }
+  function setCatchAnimation(name, time, weight, token) {
+    const action = actions.get(name);
+    if (!action) return;
+    if (playingToken !== token || playing !== name) {
+      catchBase = playing;
+      for (const [key, other] of actions) {
+        other.stopFading();
+        if (key !== catchBase && key !== name) other.stop();
+      }
+      action.reset().setLoop(THREE.LoopOnce, 1); action.clampWhenFinished = true; action.play();
+      playing = name; playingToken = token;
+    }
+    if (catchBase && catchBase !== name) actions.get(catchBase).setEffectiveWeight(1 - weight);
+    action.time = Math.min(time, action.getClip().duration); action.setEffectiveWeight(weight);
+  }
   setAnimation('run');
-  return { object: wrapper, native, mixer, setAnimation, source, name, animationNames: gltf.animations.map(c => c.name) };
+  return { object: wrapper, native, mixer, setAnimation, setTimeScale, setCatchAnimation, source, name,
+    clipDurations: Object.fromEntries(gltf.animations.map(c => [c.name, c.duration])),
+    animationNames: gltf.animations.map(c => c.name) };
 }
 
 export async function loadYellowCharacter() {

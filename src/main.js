@@ -7,11 +7,14 @@ import { EnvironmentRouteGenerator } from './environment-layout.js';
 import { POWERUP_NAMES, POWERUP_SECONDS } from './powerups.js';
 import { JETPACK_SECONDS } from './jetpack.js';
 import { createChaserPresentation } from './chaser-presentation.js';
+import { PlayerMotion } from './player-motion.js';
+import { ClassicAudio } from './classic-audio.js';
 import './style.css';
 
 const $ = id => document.getElementById(id);
 const canvas = $('game');
-const game = new RunnerGame();
+// Game.OnCatchPlayer uses serialized reviveWaitTime=3 before the SaveMe offer.
+const game = new RunnerGame({ catchPresentationSeconds: 3 });
 let renderer;
 try {
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -55,7 +58,8 @@ const ballast = mesh(new THREE.PlaneGeometry(8.6, 240), 0x727e76);
 ballast.rotation.x = -Math.PI / 2; ballast.position.set(0, -0.06, -65); ballast.castShadow = false;
 const entityRoot = new THREE.Group(); scene.add(entityRoot);
 const entityObjects = new Map();
-let pack = null, character = null, chasers = null, loaded = false, previousPhase = 'ready', previousTime = performance.now();
+let playerMotion = new PlayerMotion(), gameAudio = new ClassicAudio(null);
+let pack = null, character = null, chasers = null, loaded = false, previousPhase = 'ready', previousCatch = false, previousTime = performance.now();
 let best = 0;
 try { best = Number(localStorage.getItem('subway-browser-best') || 0); } catch {}
 if (!Number.isFinite(best)) best = 0;
@@ -115,11 +119,13 @@ window.__runner = { game, renderer, scene, camera, pack: null, character: null, 
 
 Promise.all([loadRecoveredPack(undefined, { includeChasers: false }), loadYellowCharacter(), loadRedNoseChaser()]).then(([result, yellowCharacter, redNose]) => {
   pack = result; window.__runner.pack = result;
+  playerMotion = new PlayerMotion(result.classicMotionPools); gameAudio = new ClassicAudio(result.classicAudio);
+  window.__runner.audio = gameAudio;
   if (!result.routeLibrary || !result.environmentBindings) throw new Error('原版关卡数据尚未就绪');
   const source = new SourceRouteGenerator(result.routeLibrary, { seed: game.config.seed });
   game.setRouteGenerator(new EnvironmentRouteGenerator(source, result.environmentBindings));
   // One new actor replaces the entire original guard-and-dog pair.
-  chasers = createChaserPresentation({ guard: redNose }); scene.add(chasers.object);
+  chasers = createChaserPresentation({ guard: redNose }, { bindings: result.classicBindings, sourceActors: result.manifest.chaserActors, additions: result.manifest.guardAnimationAdditions }); scene.add(chasers.object);
   window.__runner.chasers = chasers;
   installCharacter(yellowCharacter); loaded = true; window.__runner.ready = true;
   $('start').disabled = false; $('start-label').textContent = '开始奔跑';
@@ -130,30 +136,20 @@ Promise.all([loadRecoveredPack(undefined, { includeChasers: false }), loadYellow
   $('start-label').textContent = '资源未就绪';
 });
 
-let boardPose = null, equipment = null;
+let equipment = null;
 let toastTimer;
 function toast(message) {
   $('toast').textContent = message; $('toast').classList.add('show');
   clearTimeout(toastTimer); toastTimer = setTimeout(() => $('toast').classList.remove('show'), 2200);
 }
 
-let audioContext = null, soundEnabled = false;
-function sound(frequency, duration = 0.06, type = 'sine', volume = 0.035) {
-  if (!soundEnabled) return;
-  audioContext ??= new AudioContext();
-  const osc = audioContext.createOscillator(), gain = audioContext.createGain();
-  osc.type = type; osc.frequency.setValueAtTime(frequency, audioContext.currentTime);
-  osc.frequency.exponentialRampToValueAtTime(Math.max(25, frequency * 0.7), audioContext.currentTime + duration);
-  gain.gain.setValueAtTime(volume, audioContext.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + duration);
-  osc.connect(gain).connect(audioContext.destination); osc.start(); osc.stop(audioContext.currentTime + duration);
-}
+let soundEnabled = false;
 
 function start() {
-  if (!loaded) return;
+  if (!loaded || game.state.phase !== 'paused' && game.state.catchRemaining > 0) return;
   if (game.state.phase === 'paused') game.pause();
   else { if (game.state.phase === 'gameover') { for (const object of entityObjects.values()) entityRoot.remove(object); entityObjects.clear(); } game.start(); }
-  sound(440, 0.12); canvas.focus();
+  if (soundEnabled) gameAudio.enable(true); canvas.focus();
 }
 $('start').addEventListener('click', start);
 $('revive').addEventListener('click', () => { if (game.revive()) canvas.focus(); });
@@ -162,7 +158,7 @@ $('sound').addEventListener('click', async () => {
   soundEnabled = !soundEnabled;
   $('sound').style.opacity = soundEnabled ? '1' : '.55';
   $('sound').setAttribute('aria-label', soundEnabled ? '关闭游戏音效' : '开启游戏音效');
-  if (soundEnabled) { audioContext ??= new AudioContext(); await audioContext.resume(); sound(660); }
+  await gameAudio.enable(soundEnabled);
   toast(soundEnabled ? '音效已开启' : '音效已关闭');
 });
 $('sound').style.opacity = '.55';
@@ -208,7 +204,7 @@ $('character-file').addEventListener('change', async event => {
 
 function updateMenu() {
   const phase = game.state.phase;
-  const running = phase === 'running' || phase === 'reviving';
+  const running = phase === 'running' || phase === 'reviving' || phase === 'gameover' && game.state.catchRemaining > 0;
   $('menu').classList.toggle('hidden', running);
   $('menu').inert = running;
   $('menu').setAttribute('aria-hidden', String(running));
@@ -243,7 +239,7 @@ function frame(now) {
   const dt = Math.min(0.1, Math.max(0, (now - previousTime) / 1000)); previousTime = now;
   game.advance(dt);
   const s = game.state, p = s.player, time = now / 1000;
-  if (s.phase !== previousPhase) { updateMenu(); previousPhase = s.phase; }
+  if (s.phase !== previousPhase || !!s.catchRemaining !== previousCatch) { updateMenu(); previousPhase = s.phase; previousCatch = !!s.catchRemaining; }
   const reviveOffered = s.phase === 'gameover' && s.revival.phase === 'offered';
   $('revive').hidden = !reviveOffered;
   $('revive').disabled = !reviveOffered;
@@ -265,30 +261,31 @@ function frame(now) {
   $('board').disabled = s.phase !== 'running' || !game.hoverboard.canActivate;
   $('board').textContent = board.active ? `滑板 ${Math.ceil(board.timeLeft)}秒${s.flight ? ' · 暂停' : ''}` : board.cooldownBlocked ? '滑板冷却中' : `滑板 ×${board.inventory} · E`;
   $('speed-line').style.width = `${(s.speed - game.config.initialSpeed) / (game.config.maximumSpeed - game.config.initialSpeed) * 100}%`;
-  for (const event of game.drainEvents()) {
-    if (event.type === 'stumble') { sound(180, .12, 'triangle'); toast('小心，红鼻子追上来了'); }
-    if (event.type === 'revive') { boardPose = null; toast('继续奔跑'); sound(500, .2); }
-    if (event.type === 'start') boardPose = null;
-    if (event.type === 'board-start') { boardPose = { name: 'board_takeoff', until: s.elapsed + .458336 }; toast('滑板保护已开启'); }
-    if (event.type === 'land' && game.hoverboard.visible) boardPose = { name: 'board_landing', until: s.elapsed + .333334 };
-    if (event.type === 'board-hit') { boardPose = null; toast('滑板挡住了撞击'); sound(160, .2, 'triangle'); }
-    if (event.type === 'coin') sound(980 + s.coins % 4 * 85, 0.055);
-    if (event.type === 'jump') sound(420, 0.09, 'triangle');
-    if (event.type === 'crash') sound(90, 0.25, 'sawtooth', 0.03);
-    if (event.type === 'powerup') { sound(740, 0.18, 'triangle'); toast(`${POWERUP_NAMES[event.powerup]} · ${Math.ceil(event.duration)}秒`); }
+  const events = game.drainEvents();
+  gameAudio.update(s, events);
+  for (const event of events) {
+    if (event.type === 'stumble') toast('小心，红鼻子追上来了');
+    if (event.type === 'revive') toast('继续奔跑');
+    if (event.type === 'board-start') toast('滑板保护已开启');
+    if (event.type === 'board-hit') toast('滑板挡住了撞击');
+    if (event.type === 'powerup') toast(`${POWERUP_NAMES[event.powerup]} · ${Math.ceil(event.duration)}秒`);
   }
   if (loaded) {
     updateEntities(time);
-    chasers.update(s, dt);
+    chasers.update(s, dt, events);
   }
   if (character) {
     character.object.position.set(p.x, p.y, 0);
     const lean = Math.max(-0.13, Math.min(0.13, ((p.lane - 1) * game.config.laneSpacing - p.x) * -0.16));
     character.object.rotation.z = THREE.MathUtils.damp(character.object.rotation.z, lean, 12, dt);
-    const base = p.rollRemaining > 0 ? 'roll' : !p.grounded ? 'jump' : 'run';
-    const animation = s.reaction?.name ?? (s.flight ? 'flight' : game.hoverboard.visible ? (base === 'run' && boardPose?.until > s.elapsed ? boardPose.name : `board_${base}`) : base);
-    const duration = s.reaction ? s.reaction.duration : animation === 'board_takeoff' ? .458336 : animation === 'board_landing' ? .333334 : p.rollRemaining > 0 ? game.config.rollSeconds : base === 'jump' ? 2 * Math.sqrt(2 * (s.powerups.sneakers ? 4 : game.config.jumpHeight) / game.config.gravity) : undefined;
-    character.setAnimation(animation, duration, s.reaction?.token ?? null);
+    const motion = playerMotion.select(s, events, character);
+    if (chasers?.catchAvatar) {
+      const caught = chasers.catchAvatar;
+      character.setCatchAnimation?.(caught.name, Math.max(0, caught.time - (s.phase === 'paused' ? 0 : dt)), caught.weight, caught.token);
+    } else {
+      character.setAnimation(motion.name, motion.duration, motion.token ?? null, { fade: motion.fade });
+      if (motion.speed != null) character.setTimeScale?.(motion.speed);
+    }
     if (equipment) { equipment.board.visible = game.hoverboard.visible; equipment.jetpack.visible = !!s.flight; }
     if (['running','ready','gameover','reviving'].includes(s.phase)) character.mixer.update(dt * (s.phase === 'ready' ? 0.5 : 1));
   }

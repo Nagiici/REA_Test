@@ -25,14 +25,16 @@ function bounds(character) { character.object.updateMatrixWorld(true); return ne
 test('yellow player contains 26 recovered bone mappings and the original locomotion and equipment clip sources', () => {
   assert.equal(document.skins[0].joints.length, 26);
   assert.equal(new Set(report.bones.map(b => b.sourcePath)).size, 26);
-  assert.ok(report.bytes < 7_000_000);
+  assert.ok(report.bytes < 10_000_000);
   assert.ok(report.meshStats.reduce((n, m) => n + m.triangles, 0) < 85_000);
   for (const animation of document.animations) {
     const source = JSON.parse(fs.readFileSync(new URL(`../public/assets/recovered/${animation.name}.animation.json`, import.meta.url)));
     assert.deepEqual(animation.extras.source, source.source);
     assert.equal(animation.extras.sourceDuration, source.duration);
   }
-  assert.deepEqual(document.animations.map(a => a.name).sort(), ['board_jump', 'board_landing', 'board_roll', 'board_run', 'board_takeoff', 'flight', 'jump', 'roll', 'run', 'death_bounce', 'death_upper', 'death_lower', 'death_moving_train', 'stumble_low', 'stumble_mix', 'stumble_left', 'stumble_right', 'stumble_corner_left', 'stumble_no_land', 'caught_fall'].sort());
+  const pools = JSON.parse(fs.readFileSync(new URL('../public/assets/recovered/classic-motion-pools.json', import.meta.url)));
+  assert.equal(document.animations.length, 42);
+  for (const name of [...Object.values(pools).flat(), 'caught_left_neck', 'caught_right_leg', 'board_left', 'flight_right']) assert.ok(document.animations.some(a => a.name === name), name);
 });
 
 test('yellow GLB loads as a skinned, grounded player with normalized four-joint weights', async () => {
@@ -110,16 +112,16 @@ test('rapid roll inputs keep animating beyond the first clip and recover after i
     if (i < 180 && i%12===0) game.action('roll');
     game.advance(1/60);
     const rolling=game.state.player.rollRemaining>0;
-    character.setAnimation(rolling?'roll':'run', game.config.rollSeconds);
+    character.setAnimation(rolling?'roll':'run', game.config.rollSeconds, rolling ? game.state.player.rollToken : null);
     character.mixer.update(1/60);
     const q=character.native.getObjectByName('Root_jnt').quaternion.clone();
-    if (i>60 && i<180) {
+    if (i>60 && i<180 && rolling) {
       assert.ok(character.mixer._actions.find(a=>a.getClip().name==='roll').isRunning(), `Roll froze at frame ${i}`);
       if(previousQuaternion && q.angleTo(previousQuaternion)>.001) changes++;
     }
     previousQuaternion=q;
   }
-  assert.ok(changes>100, `Only ${changes} moving frames during sustained rolling`);
+  assert.ok(changes>80, `Only ${changes} moving frames during sustained rolling`);
   assert.equal(game.state.player.rollRemaining,0);
   assert.ok(character.mixer._actions.find(a=>a.getClip().name==='run').isRunning());
 });
