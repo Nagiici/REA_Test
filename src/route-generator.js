@@ -643,7 +643,7 @@ export class SourceRouteGenerator {
         if (binding && node.parentId == null) {
           const position = new Vector3().setFromMatrixPosition(matrix).multiplyScalar(this.unitScale);
           const anchor = { x: position.x, distance: position.z };
-          result.entities.push({ type: 'decoration', ...anchor, ...this.motionFields(inheritedMotion, anchor.distance), visual: { prefabKey: binding.prefabKey, matrix: visualMatrix(matrix, anchor, this.unitScale) }, provenance });
+          result.entities.push({ type: 'decoration', ...anchor, ...this.motionFields(inheritedMotion, anchor.distance), visual: { prefabKey: binding.prefabKey, placeholderRoot: true, matrix: visualMatrix(matrix, anchor, this.unitScale) }, provenance });
         }
       },
     });

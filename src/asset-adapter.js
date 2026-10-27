@@ -202,7 +202,7 @@ export function chaserFromUnity(name, info, rig, meshData, animations, textures 
     animationDiagnostics: Object.fromEntries(Object.entries(clips).map(([key, clip]) => [key, clip.userData])) };
 }
 
-function prefabFromUnity(data, meshData, textures, manifest) {
+export function prefabFromUnity(data, meshData, textures, manifest) {
   const native = new THREE.Group(), byId = new Map();
   for (const source of data.nodes) {
     const node = new THREE.Group(); node.name = source.name;

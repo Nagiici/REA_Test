@@ -519,7 +519,13 @@ export class RunnerGame {
       this.ceiling = motion.ceiling;
     }
     let floor = this.surfaceHeight(s.distance, p.x, previousY);
-    if (!s.flight && p.y <= floor && p.velocityY <= 0) {
+    // An ascending jump can still move INTO an ascending ramp: vertical
+    // velocity alone does not describe motion relative to its inclined face.
+    // Accept only a crossing from above that same physical support surface.
+    const crossedRamp = !s.flight ? this.rampSupportAlongMove(
+      [previousX, previousY, previousDistance], [p.x, p.y, s.distance]) : -Infinity;
+    floor = Math.max(floor, crossedRamp);
+    if (!s.flight && p.y <= floor && (p.velocityY <= 0 || p.y <= crossedRamp)) {
       p.y = floor;
       p.grounded = true;
       // MoveForward81723 stores the Y captured before controller.Move.
@@ -828,6 +834,23 @@ export class RunnerGame {
         const bounds = controllerInterval({ ...e, x: entityX }, x, distance);
         if (bounds?.walkable && previousY >= bounds.max - .12) floor = Math.max(floor, bounds.max);
       }
+    }
+    return floor;
+  }
+
+  rampSupportAlongMove(previous, current) {
+    let floor = -Infinity;
+    for (const e of this.entities) {
+      if (e.type !== 'ramp' || e.collisionDisabled || e.sourceIsTrigger || !e.sourceShape) continue;
+      const x = e.x ?? (e.lane - 1) * this.config.laneSpacing;
+      const body = { ...e, x };
+      const next = controllerInterval(body, current[0], current[2]);
+      if (!next?.walkable || current[1] > next.max + 1e-8) continue;
+      const before = controllerInterval({ ...body, distance: e.previousDistance ?? e.distance }, previous[0], previous[2]);
+      // A body already underneath the slope or entering a high side wall
+      // must not teleport up to the roof. This is a top-surface crossing.
+      if (before?.walkable && previous[1] >= before.max - 1e-7)
+        floor = Math.max(floor, next.max);
     }
     return floor;
   }

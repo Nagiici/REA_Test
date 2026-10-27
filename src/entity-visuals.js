@@ -12,6 +12,20 @@ export function createEntityVisual(entity, pack) {
     const model = descriptor.prefabKey ? pack.clonePrefab(descriptor.prefabKey)
       : pack.cloneProp(descriptor.meshKey);
     if (!model) throw new Error(`缺少关卡模型：${descriptor.prefabKey ?? descriptor.meshKey}`);
+    if (descriptor.placeholderRoot) {
+      // Placeholder.InitializeSpawnedInstance81520 resets the instantiated
+      // root position/rotation, activates it, and preserves scale/descendants.
+      // The ramp prefab carries an editor X=37.3; retaining it disconnects
+      // the visible carriage from its route colliders by 3.73 browser units.
+      // Limit this to route placeholders, not authored intro/effect layouts.
+      const definition = pack.prefabData?.[descriptor.prefabKey];
+      if (!definition) throw new Error(`缺少占位模型根节点：${descriptor.prefabKey}`);
+      const roots = new Set(definition.nodes.filter(node => node.parentId == null).map(node => node.id));
+      model.traverse(node => {
+        if (!roots.has(node.userData.sourceNodeId)) return;
+        node.position.set(0, 0, 0); node.quaternion.identity(); node.visible = true;
+      });
+    }
     const holder = new THREE.Group();
     holder.name = entity.provenance?.nodeName ?? descriptor.prefabKey ?? descriptor.meshKey;
     if (descriptor.matrix) {
