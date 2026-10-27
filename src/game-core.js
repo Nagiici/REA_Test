@@ -90,7 +90,9 @@ export class RunnerGame {
       player: { lane: 1, x: 0, y: 0, velocityY: 0, rollRemaining: 0, rollToken: 0,
         isJumping: false, isFalling: false, lastGroundedY: 0, inAirJump: false, jumpHeight: this.config.jumpHeight,
         transitionFromHeight: false, canAccelerateForward: true,
-        grounded: true, floor: 0, laneFrom: 0, laneElapsed: 0, laneDuration: 0 },
+        // Ready is already settled. Native constructor starts its observable
+        // false; ApplyGravity then publishes contact independently of Move.
+        grounded: true, motionGrounded: true, floor: 0, laneFrom: 0, laneElapsed: 0, laneDuration: 0 },
       collision: null, reaction: null, pausedFrom: null, catchRemaining: 0, deathGrounding: null,
     };
     this.jetpack = new Jetpack({ tier: clamp(Math.floor(this.config.powerupTier), 0, 6) });
@@ -163,7 +165,7 @@ export class RunnerGame {
       p.laneDuration = Math.abs((next - 1) - p.x / this.config.laneSpacing) * this.laneChangeSeconds;
       p.lane = next;
       this.events.push({ type: 'lane', lane: next, direction: action === 'left' ? -1 : 1, duration: p.laneDuration,
-        motion: { grounded: p.grounded, jumping: p.isJumping, flying: !!this.state.flight,
+        motion: { grounded: p.motionGrounded, jumping: p.isJumping, flying: !!this.state.flight,
           hoverboard: this.state.board.active, speedNormalized: this.state.speed / 11 } });
       return true;
     }
@@ -176,7 +178,7 @@ export class RunnerGame {
     if (action === 'jump') {
       this.endRoll('jump');
       if (p.isJumping && this.ceiling.evaded) this.ceiling.hit = false;
-      p.inAirJump = false; p.isJumping = true; p.isFalling = false;
+      p.inAirJump = false; p.isJumping = true; p.isFalling = false; p.motionGrounded = false;
       p.jumpHeight = this.state.powerups.sneakers > 0 ? SNEAKERS.height : this.config.jumpHeight;
       p.velocityY = Math.sqrt(2 * this.config.gravity * this.config.jumpHeight);
       p.grounded = false;
@@ -472,14 +474,18 @@ export class RunnerGame {
       if (p.velocityY < 0 && p.grounded) {
         const notifyLanding = p.isJumping || p.isFalling;
         const impactVelocity = p.velocityY;
-        p.isJumping = false; p.isFalling = false; p.transitionFromHeight = false;
-        this.ceiling = { hit: false, minY: 0, evaded: true };
-        if (notifyLanding) this.events.push({ type: 'land', velocityY: impactVelocity, rolling: p.rollRemaining > 0 });
+        p.motionGrounded = true; p.transitionFromHeight = false;
+        if (notifyLanding) {
+          p.isJumping = false; p.isFalling = false;
+          this.ceiling = { hit: false, minY: 0, evaded: true };
+          this.events.push({ type: 'land', velocityY: impactVelocity, rolling: p.rollRemaining > 0 });
+        }
         p.velocityY = 0;
       }
       p.velocityY -= c.gravity * dt;
       if (!p.grounded && !p.isFalling && p.rollRemaining <= 0 && p.velocityY < -1) {
         p.isFalling = true; this.events.push({ type: 'hangtime' });
+        p.motionGrounded = false;
       }
       const motion = classicVerticalMotion({ y: p.y, velocityY: p.velocityY, dt, gravity: c.gravity,
         jumping: p.isJumping, ceiling: this.ceiling,
@@ -683,7 +689,7 @@ export class RunnerGame {
     if (target != null) flight = this.jetpack.extendTarget(target);
     s.flight = flight; s.speed = flight.speed; s.powerups.jetpack = flight.timeLeft;
     this.endRoll('jetpack');
-    p.sneakersJump = null; p.grounded = false; p.velocityY = 0;
+    p.sneakersJump = null; p.grounded = false; p.motionGrounded = false; p.velocityY = 0;
     this.hoverboard.state.flying = true;
     if (headstart) this.placeHeadstartRewards(flight);
     // Headstart bypasses the ordinary jetpack coin-line branch.
@@ -753,14 +759,21 @@ export class RunnerGame {
     let floor = this.entities.some(entity => (entity.type === 'gap' || entity.floor === false) && inside(entity)) ? -Infinity : 0;
     for (const e of this.entities) {
       if (e.collisionDisabled) continue;
-      if (e.type !== 'train' && e.type !== 'ramp' && !e.walkable) continue;
+      // CharacterController.Move has no train-name whitelist. Recovered solid
+      // platforms/barriers also support a descent from above. Keep the legacy
+      // ground-plane adapter until the original controller rest offset is known.
+      const solidTop = e.type === 'obstacle' && e.sourceShape && e.sourceIsTrigger === false && e.sourceTag !== 'Ground';
+      if (e.sourceIsTrigger || e.type !== 'train' && e.type !== 'ramp' && !e.walkable && !solidTop) continue;
       const entityX = e.x ?? (e.lane - 1) * this.config.laneSpacing;
       if (Math.abs(entityX - x) > e.width / 2) continue;
       const relative = distance - (e.distance - e.depth / 2);
       if (relative < 0 || relative > e.depth) continue;
       if (e.sourceShape) {
         const bounds = sourceVerticalBounds(e, x, distance);
-        if (bounds && previousY >= bounds.top - (e.type === 'ramp' ? 0.35 : 0.12)) floor = Math.max(floor, bounds.top);
+        // New solid supports require a true top crossing, not a step-up from
+        // below. Existing ramp/train seam tolerances remain separate adapters.
+        const tolerance = solidTop ? 1e-7 : e.type === 'ramp' ? 0.35 : 0.12;
+        if (bounds && previousY >= bounds.top - tolerance) floor = Math.max(floor, bounds.top);
       } else if (e.type === 'ramp') {
         const height = e.surface ? this.sourceSurfaceHeight(e, x, distance) : (e.bottom ?? 0) + relative / e.depth * (e.height - (e.bottom ?? 0));
         if (height != null) floor = Math.max(floor, height);

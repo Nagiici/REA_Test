@@ -43,7 +43,7 @@ export class PlayerMotion {
       if (event.type === 'lane') {
         // NotifyOnChangeTrack runs at input time. A landing in a later fixed
         // step in this render frame must not retroactively permit an air dodge.
-        const context = event.motion ?? { grounded: p.grounded, jumping: p.isJumping,
+        const context = event.motion ?? { grounded: p.motionGrounded, jumping: p.isJumping,
           flying: !!state.flight, hoverboard: state.board.active };
         const plan = laneAnimationPlan({ direction: event.direction < 0 ? 'left' : 'right', ...context,
           dead: state.phase === 'gameover', hitMovingPlaying: state.reaction?.name === 'death_moving_train' });
@@ -139,7 +139,9 @@ export class PlayerMotion {
       const roll = this.rollPose ?? { name: state.board.active ? 'board_roll' : 'roll', token: p.rollToken, fade: SOURCE.rollFade };
       return { ...roll, duration: duration(roll.name) };
     }
-    if (!p.grounded && !this.airReturnRun) return state.board.active ? { name: 'board_jump', token: this.air?.token, fade: this.air?.fade ?? SOURCE.jumpFade }
+    // Physical support precedes the landing callback. Explicit Jump/Revive
+    // stays authoritative even when the observable still reports grounded.
+    if ((this.air || !p.motionGrounded) && !this.airReturnRun) return state.board.active ? { name: 'board_jump', token: this.air?.token, fade: this.air?.fade ?? SOURCE.jumpFade }
       : this.air ?? { name: 'jump', fade: SOURCE.jumpFade };
     return { name: state.board.active ? 'board_run' : this.runName, fade: this.returnFade, speed: speedRatio };
   }

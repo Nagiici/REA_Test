@@ -373,7 +373,7 @@ function frame(now) {
       const shakeSample = cameraController.shake
         ? new THREE.Vector3().randomDirection().multiplyScalar(Math.cbrt(Math.random())).toArray() : [0,0,0];
       cameraController.step(dt, { position: [p.x,p.y,s.distance], lastGroundedY: p.lastGroundedY,
-        grounded: p.grounded, sneakers: !!s.powerups.sneakers, jetpack: s.flight, shakeSample,
+        grounded: p.motionGrounded, sneakers: !!s.powerups.sneakers, jetpack: s.flight, shakeSample,
         runningOrJetpack: s.phase === 'running', ...cameraRegion });
     }
   }
