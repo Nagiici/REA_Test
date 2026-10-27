@@ -226,9 +226,10 @@ function prefabFromUnity(data, meshData, textures, manifest) {
   const wrapper = new THREE.Group(); wrapper.name = data.name; wrapper.add(native); return wrapper;
 }
 
-export async function loadRecoveredPack(base = '/assets/recovered/') {
+export async function loadRecoveredPack(base = '/assets/recovered/', { includeChasers = true } = {}) {
   const manifest = await fetchJson(`${base}manifest.json`);
-  const meshEntries = Object.entries(manifest.meshes);
+  const oldChaserMeshes = new Set(Object.values(manifest.chaserActors ?? {}).flatMap(actor => actor.meshes.map(mesh => mesh.key)));
+  const meshEntries = Object.entries(manifest.meshes).filter(([name]) => includeChasers || !oldChaserMeshes.has(name));
   const textures = Object.fromEntries(await Promise.all(Object.entries(manifest.textures).map(async ([name, info]) => {
     const texture = await textureLoader.loadAsync(base + info.file);
     texture.colorSpace = THREE.SRGBColorSpace;
@@ -251,7 +252,7 @@ export async function loadRecoveredPack(base = '/assets/recovered/') {
   const environmentPath = manifest.environmentBindings ?? routeLibrary?.environmentBindingsFile;
   const environmentBindings = environmentPath ? await fetchJson(base + (typeof environmentPath === 'string' ? environmentPath : environmentPath.file)) : null;
   const character = characterFromUnity({ jake_Mesh: meshData.jake_Mesh, jake_head: meshData.jake_head }, rig, textures.jake_tex_low, animations);
-  const chasers = Object.fromEntries(await Promise.all(Object.entries(manifest.chaserActors ?? {}).map(async ([name, info]) => {
+  const chasers = Object.fromEntries(await Promise.all(Object.entries(includeChasers ? manifest.chaserActors ?? {} : {}).map(async ([name, info]) => {
     const [actorRig, actorClips] = await Promise.all([fetchJson(base + info.rig.file), Promise.all(Object.entries(info.animations).map(async ([key, value]) => [key, await fetchJson(base + value.file)]))]);
     return [name, chaserFromUnity(name, info, actorRig, meshData, Object.fromEntries(actorClips), textures)];
   })));
@@ -328,6 +329,17 @@ export async function loadYellowCharacter() {
   const response = await fetch('/assets/character/yellow-runner.glb');
   if (!response.ok) throw new Error(`黄色角色读取失败 (${response.status})`);
   return characterFromGLB(await response.arrayBuffer(), { name: '黄色小怪兽', source: 'hi3d-with-recovered-jake-motion' });
+}
+
+export async function loadRedNoseChaser() {
+  const response = await fetch('/assets/character/red-nose-chaser.glb');
+  if (!response.ok) throw new Error(`追逐角色读取失败 (${response.status})`);
+  const actor = await characterFromGLB(await response.arrayBuffer(), { name: '红鼻子追逐者', source: 'hi3d-with-recovered-guard-motion' });
+  // Ears are part of the full-body height. A modest fit keeps the torso readable
+  // beside the broader yellow player; this affects appearance only.
+  actor.object.scale.setScalar(1.15);
+  actor.object.position.x = -.28;
+  return actor;
 }
 
 export { cloneSkeleton };

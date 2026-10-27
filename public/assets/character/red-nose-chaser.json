@@ -1,0 +1,271 @@
+{
+  "input": "outputs/red-nose-character-20261027/red-nose-character.glb",
+  "output": "web/public/assets/character/red-nose-chaser.glb",
+  "bytes": 3647004,
+  "sha256": "60d0366c907c58a899e09f86cd4e07d9c7d0e606ae695f6b473419ee426d81e0",
+  "sourceTriangles": 2000000,
+  "triangles": 74992,
+  "vertices": 39946,
+  "simplificationError": 0.0014648365322500467,
+  "bones": [
+    {
+      "name": "root_A",
+      "sourcePath": "guard_gameSkeleton/root_A",
+      "position": [
+        0,
+        -0.35,
+        0.12
+      ]
+    },
+    {
+      "name": "back_B",
+      "sourcePath": "guard_gameSkeleton/root_A/back_B",
+      "position": [
+        0,
+        -0.2,
+        0.11
+      ]
+    },
+    {
+      "name": "leg_A_L",
+      "sourcePath": "guard_gameSkeleton/root_A/leg_A_L",
+      "position": [
+        -0.125,
+        -0.38,
+        0.12
+      ]
+    },
+    {
+      "name": "leg_A_R",
+      "sourcePath": "guard_gameSkeleton/root_A/leg_A_R",
+      "position": [
+        0.125,
+        -0.38,
+        0.12
+      ]
+    },
+    {
+      "name": "chest_jnt",
+      "sourcePath": "guard_gameSkeleton/root_A/back_B/chest_jnt",
+      "position": [
+        0,
+        -0.02,
+        0.13
+      ]
+    },
+    {
+      "name": "leg_B_L",
+      "sourcePath": "guard_gameSkeleton/root_A/leg_A_L/leg_B_L",
+      "position": [
+        -0.135,
+        -0.435,
+        0.14
+      ]
+    },
+    {
+      "name": "leg_B_R",
+      "sourcePath": "guard_gameSkeleton/root_A/leg_A_R/leg_B_R",
+      "position": [
+        0.135,
+        -0.435,
+        0.14
+      ]
+    },
+    {
+      "name": "arm_A_L",
+      "sourcePath": "guard_gameSkeleton/root_A/back_B/chest_jnt/arm_A_L",
+      "position": [
+        -0.16,
+        -0.07,
+        0.16
+      ]
+    },
+    {
+      "name": "arm_A_R",
+      "sourcePath": "guard_gameSkeleton/root_A/back_B/chest_jnt/arm_A_R",
+      "position": [
+        0.16,
+        -0.07,
+        0.16
+      ]
+    },
+    {
+      "name": "neck",
+      "sourcePath": "guard_gameSkeleton/root_A/back_B/chest_jnt/neck",
+      "position": [
+        0,
+        0.09,
+        0.14
+      ]
+    },
+    {
+      "name": "foot_A_L",
+      "sourcePath": "guard_gameSkeleton/root_A/leg_A_L/leg_B_L/foot_A_L",
+      "position": [
+        -0.14,
+        -0.47,
+        0.15
+      ]
+    },
+    {
+      "name": "foot_A_R",
+      "sourcePath": "guard_gameSkeleton/root_A/leg_A_R/leg_B_R/foot_A_R",
+      "position": [
+        0.14,
+        -0.47,
+        0.15
+      ]
+    },
+    {
+      "name": "arm_B_L",
+      "sourcePath": "guard_gameSkeleton/root_A/back_B/chest_jnt/arm_A_L/arm_B_L",
+      "position": [
+        -0.19,
+        -0.17,
+        0.25
+      ]
+    },
+    {
+      "name": "arm_B_R",
+      "sourcePath": "guard_gameSkeleton/root_A/back_B/chest_jnt/arm_A_R/arm_B_R",
+      "position": [
+        0.19,
+        -0.17,
+        0.25
+      ]
+    },
+    {
+      "name": "foot_B_L",
+      "sourcePath": "guard_gameSkeleton/root_A/leg_A_L/leg_B_L/foot_A_L/foot_B_L",
+      "position": [
+        -0.14,
+        -0.48,
+        0.24
+      ]
+    },
+    {
+      "name": "foot_B_R",
+      "sourcePath": "guard_gameSkeleton/root_A/leg_A_R/leg_B_R/foot_A_R/foot_B_R",
+      "position": [
+        0.14,
+        -0.48,
+        0.24
+      ]
+    },
+    {
+      "name": "wrist_L",
+      "sourcePath": "guard_gameSkeleton/root_A/back_B/chest_jnt/arm_A_L/arm_B_L/wrist_L",
+      "position": [
+        -0.12,
+        -0.2,
+        0.31
+      ]
+    },
+    {
+      "name": "wrist_R",
+      "sourcePath": "guard_gameSkeleton/root_A/back_B/chest_jnt/arm_A_R/arm_B_R/wrist_R",
+      "position": [
+        0.12,
+        -0.2,
+        0.31
+      ]
+    }
+  ],
+  "clips": [
+    {
+      "name": "run",
+      "source": {
+        "asset": "3ddf79e8f87740f41bc3ff517ea604fa",
+        "pathId": "1"
+      },
+      "duration": 0.47999998927116394,
+      "frames": 45,
+      "lowest": -0.49947330355644226,
+      "highest": 0.4585991172711025
+    },
+    {
+      "name": "jump",
+      "source": {
+        "asset": "3ddf79e8f87740f41bc3ff517ea604fa",
+        "pathId": "3"
+      },
+      "duration": 0.9200000762939453,
+      "frames": 84,
+      "lowest": -0.49947330355644226,
+      "highest": 0.5502080565726473
+    },
+    {
+      "name": "left",
+      "source": {
+        "asset": "3ddf79e8f87740f41bc3ff517ea604fa",
+        "pathId": "4"
+      },
+      "duration": 0.5199999809265137,
+      "frames": 48,
+      "lowest": -0.49947330355644226,
+      "highest": 0.557001297218614
+    },
+    {
+      "name": "right",
+      "source": {
+        "asset": "3ddf79e8f87740f41bc3ff517ea604fa",
+        "pathId": "7"
+      },
+      "duration": 0.5199999809265137,
+      "frames": 48,
+      "lowest": -0.49947330355644226,
+      "highest": 0.5357136024642456
+    },
+    {
+      "name": "death_moving_train",
+      "source": {
+        "asset": "3ddf79e8f87740f41bc3ff517ea604fa",
+        "pathId": "6"
+      },
+      "duration": 1.4799995422363281,
+      "frames": 135,
+      "lowest": -0.4994733035564423,
+      "highest": 0.5798837417688737
+    },
+    {
+      "name": "catchup_0",
+      "source": {
+        "asset": "3ddf79e8f87740f41bc3ff517ea604fa",
+        "pathId": "5"
+      },
+      "duration": 0.9600000381469727,
+      "frames": 88,
+      "lowest": -0.49947330355644226,
+      "highest": 0.546949240425371
+    },
+    {
+      "name": "catchup_1",
+      "source": {
+        "asset": "3ddf79e8f87740f41bc3ff517ea604fa",
+        "pathId": "2"
+      },
+      "duration": 0.9599999785423279,
+      "frames": 88,
+      "lowest": -0.49947330355644226,
+      "highest": 0.516623389848904
+    }
+  ],
+  "provenance": {
+    "sourceTask": "37e98af3991e4cacb6817b0fd75413cb",
+    "sourceSha256": "a4af1343209c0a90f05cb7d45fc2a2fde2b60e4fe6865f724d277822fbe5812c",
+    "source": "User-generated Hi3D red nose full body; original downloaded GLB preserved",
+    "motion": "Recovered Subway Surfers 7.07.0 guard rig and seven source clips; visual retarget, not original guard body",
+    "adaptations": [
+      "75k target triangle reduction",
+      "2048px albedo from original 8192px texture",
+      "18 fitted bones and new weights",
+      "Tail follows pelvis; ears follow head",
+      "Reduced arm/back rotations for fused body",
+      "Constant scale, floor correction, run seam correction"
+    ],
+    "replaces": [
+      "guard",
+      "dog"
+    ]
+  }
+}

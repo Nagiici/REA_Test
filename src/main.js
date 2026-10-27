@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RunnerGame } from './game-core.js';
-import { loadRecoveredPack, characterFromGLB, loadYellowCharacter } from './asset-adapter.js';
+import { loadRecoveredPack, characterFromGLB, loadYellowCharacter, loadRedNoseChaser } from './asset-adapter.js';
 import { createEntityVisual } from './entity-visuals.js';
 import { SourceRouteGenerator } from './route-generator.js';
 import { EnvironmentRouteGenerator } from './environment-layout.js';
@@ -113,12 +113,14 @@ window.__runner = { game, renderer, scene, camera, pack: null, character: null, 
   snapshot: () => ({ phase: game.state.phase, distance: game.state.distance, player: { ...game.state.player }, entities: game.entities.length, character: character?.name, animations: character?.animationNames, drawCalls: renderer.info.render.calls }),
 };
 
-Promise.all([loadRecoveredPack(), loadYellowCharacter()]).then(([result, yellowCharacter]) => {
+Promise.all([loadRecoveredPack(undefined, { includeChasers: false }), loadYellowCharacter(), loadRedNoseChaser()]).then(([result, yellowCharacter, redNose]) => {
   pack = result; window.__runner.pack = result;
   if (!result.routeLibrary || !result.environmentBindings) throw new Error('原版关卡数据尚未就绪');
   const source = new SourceRouteGenerator(result.routeLibrary, { seed: game.config.seed });
   game.setRouteGenerator(new EnvironmentRouteGenerator(source, result.environmentBindings));
-  chasers = createChaserPresentation(result.chasers); scene.add(chasers.object);
+  // One new actor replaces the entire original guard-and-dog pair.
+  chasers = createChaserPresentation({ guard: redNose }); scene.add(chasers.object);
+  window.__runner.chasers = chasers;
   installCharacter(yellowCharacter); loaded = true; window.__runner.ready = true;
   $('start').disabled = false; $('start-label').textContent = '开始奔跑';
 }).catch(error => {
@@ -248,7 +250,7 @@ function frame(now) {
   $('revive').textContent = `试玩复活 · ${Math.ceil(s.revival.offerRemaining)}秒`;
   $('revive-note').hidden = !reviveOffered;
   $('chase-status').hidden = !s.stumble?.isStumbling || !['running', 'paused'].includes(s.phase);
-  if (s.stumble?.isStumbling) { $('chase-status').querySelector('span').textContent = `警卫逼近 · ${Math.ceil(s.stumble.timeLeft)}秒`; $('chase-status').querySelector('progress').value = s.stumble.timeLeft; }
+  if (s.stumble?.isStumbling) { $('chase-status').querySelector('span').textContent = `红鼻子追近 · ${Math.ceil(s.stumble.timeLeft)}秒`; $('chase-status').querySelector('progress').value = s.stumble.timeLeft; }
   $('distance').textContent = Math.floor(s.distance / game.config.distancePerMeter).toLocaleString();
   $('coins').textContent = s.coins.toLocaleString();
   $('score').textContent = s.score.toLocaleString();
@@ -264,7 +266,7 @@ function frame(now) {
   $('board').textContent = board.active ? `滑板 ${Math.ceil(board.timeLeft)}秒${s.flight ? ' · 暂停' : ''}` : board.cooldownBlocked ? '滑板冷却中' : `滑板 ×${board.inventory} · E`;
   $('speed-line').style.width = `${(s.speed - game.config.initialSpeed) / (game.config.maximumSpeed - game.config.initialSpeed) * 100}%`;
   for (const event of game.drainEvents()) {
-    if (event.type === 'stumble') { sound(180, .12, 'triangle'); toast('小心，警卫追近了'); }
+    if (event.type === 'stumble') { sound(180, .12, 'triangle'); toast('小心，红鼻子追上来了'); }
     if (event.type === 'revive') { boardPose = null; toast('继续奔跑'); sound(500, .2); }
     if (event.type === 'start') boardPose = null;
     if (event.type === 'board-start') { boardPose = { name: 'board_takeoff', until: s.elapsed + .458336 }; toast('滑板保护已开启'); }
