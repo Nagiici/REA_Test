@@ -587,7 +587,7 @@ export class SourceRouteGenerator {
           const radius = trigger.fields.m_Radius * Math.max(Math.abs(scales.x), Math.abs(scales.y), Math.abs(scales.z)) * this.unitScale;
           const position = new Vector3().setFromMatrixPosition(matrix).multiplyScalar(this.unitScale);
           const anchor = { x: position.x, distance: position.z };
-          result.entities.push({ type: 'powerup', powerup: pickup.powerup, powerupType: pickup.type, ...anchor, y: center.y,
+          result.entities.push({ type: 'powerup', powerup: pickup.powerup, powerupType: pickup.type, ...anchor, y: center.y, pickupRootY: position.y,
             sourcePickupTrigger: { center: center.toArray(), radius },
             visual: { prefabKey: `powerup_${pickup.powerup}`, matrix: visualMatrix(matrix, anchor, this.unitScale) },
             provenance: { ...provenance, selector: pickup.selectorSource, trigger: trigger.source, sourceGameObject: `${graph.source.asset}:${node.gameObjectId}` } });

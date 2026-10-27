@@ -1,0 +1,30 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>冲刺奖励与碰撞时序验证</title>
+<style>body{margin:0;background:#123839;color:#edf3da;font:13px system-ui}iframe{display:block;border:0;width:100%;height:calc(100dvh - 190px)}body.portrait iframe{width:390px;margin:auto}nav{display:flex;flex-wrap:wrap;gap:7px;padding:10px}button{padding:8px 12px;border:0;border-radius:6px;background:#e9efce;color:#143e3c}output{display:block;white-space:pre-wrap;padding:0 12px;font-size:12px}</style>
+<iframe src="/" title="经典模式场景"></iframe>
+<nav><button id="row">奖励三选一</button><button id="magnet">领取磁铁</button><button id="sneakers">领取跑鞋</button><button id="doubleScore">领取双倍积分</button><button id="turbo">追加冲刺重排</button><button id="buffer">落地缓冲连跳</button><button id="board">滑板连续碰撞</button><button id="roll">连续翻滚</button><button id="pause">暂停／继续</button><button id="portrait">横／竖屏</button></nav>
+<output id="status">等待角色资源…</output>
+<script type="module">
+const frame=document.querySelector('iframe'),out=document.querySelector('output');let r,route,jobs=[],failures=[],history=[],label='菜单',mode='',chosen=null,rows=[],collectedInFlight=false,allEvents=[];
+const later=(fn,ms)=>jobs.push(setTimeout(fn,ms));
+function reset(isolate=false){jobs.forEach(clearTimeout);jobs=[];history=[];allEvents=[];mode='';chosen=null;rows=[];collectedInFlight=false;const g=r.game;g.routeGenerator=route;g.headstartOnStart=false;g.reset();if(isolate){g.routeGenerator=null;g.entities=g.entities.filter(e=>e.type==='decoration'&&(e.provenance?.environment||/track/i.test(e.visual?.prefabKey??'')));g.nextSection=1e9;const intro=g.introOptions;g.introOptions=null;g.start();g.introOptions=intro;g.state.distance=80;}return g;}
+frame.addEventListener('load',()=>{frame.contentWindow.addEventListener('error',e=>failures.push(e.message));});
+const names={magnet:'磁铁',sneakers:'跑鞋',doubleScore:'双倍积分'};
+setInterval(()=>{if(!r&&frame.contentWindow.__runner?.ready){r=frame.contentWindow.__runner;route=r.game.routeGenerator;const drain=r.game.drainEvents.bind(r.game);r.game.drainEvents=()=>{const events=drain();allEvents.push(...events);history.push(...events.map(e=>e.type==='powerup'?`道具:${e.powerup}`:e.type));history=history.slice(-24);if(r.game.state.flight&&events.some(e=>e.type==='powerup'&&!e.headstart))collectedInFlight=true;return events;};}if(!r)return;
+ const g=r.game,s=g.state,p=s.player,f=s.flight,row=g.entities.filter(e=>e.headstartReward);if(row.length&&rows.at(-1)?.id!==row[0].id)rows.push({id:row[0].id,target:row[0].distance});
+ if(s.phase==='running'){
+  if(f&&names[mode]&&!chosen){chosen=row.find(e=>e.powerup===mode);if(chosen&&chosen.lane!==p.lane)g.action(chosen.lane<p.lane?'left':'right');}
+  if(f&&mode==='turbo'&&((f.headstartTier===0&&s.elapsed>2)||(f.headstartTier===1&&s.elapsed>4)))g.action('turbo');
+  if(f&&(mode==='row'||mode==='turbo'&&f.headstartTier===2)&&s.distance>=f.targetZ-14){g.pause();mode='hold';}
+  if(names[mode]&&chosen?.collected&&!f&&p.grounded&&allEvents.some(e=>e.type==='land')){g.pause();mode='hold';}
+ }
+ frame.contentDocument.querySelector('#menu').style.visibility=s.phase==='paused'?'hidden':'';
+ const a=r.character.getAnimationSnapshot().current,c=r.cameraController.snapshot();
+ out.textContent=`${label} · ${s.phase}/${s.pausedFrom??''} · 动作 ${a.name} · 距离 ${s.distance.toFixed(2)} · 高度 ${p.y.toFixed(3)} · 落地 ${p.grounded} · FOV ${c.fov.toFixed(2)}\n奖励 ${row.map(e=>`${e.lane}:${names[e.powerup]}${e.collected?'✓':''}`).join(' / ')} · 放置终点 ${rows.map(e=>e.target).join(' → ')} · 飞行中领取 ${collectedInFlight} · 效果 ${Object.entries(s.powerups).map(([k,v])=>`${names[k]??k}:${v.toFixed(2)}`).join(' ')}\n跳跃通知 ${allEvents.filter(e=>e.type==='jump').length} · 落地通知 ${allEvents.filter(e=>e.type==='land').length} · 滑板吸收 ${allEvents.filter(e=>e.type==='board-hit').length} · 重击 ${allEvents.filter(e=>e.type==='critical-hit').length} · 事件 ${history.join(',')} · 错误 ${[...failures,...r.errors].join('|')||0}`;
+},40);
+function flight(which){label=which==='row'?'原路线冲刺终点奖励':which==='turbo'?'三档终点重新排列':`原路线领取${names[which]}并落地`;reset();mode=which;frame.contentDocument.querySelector('#headstart').checked=true;frame.contentDocument.querySelector('#start').click();}
+for(const key of ['row','magnet','sneakers','doubleScore','turbo'])document.getElementById(key).onclick=()=>flight(key);
+document.querySelector('#buffer').onclick=()=>{label='隔离障碍：缓冲跳跃不插入落地动作';const g=reset(true);g.action('jump');later(()=>g.action('jump'),700);later(()=>g.pause(),1100);};
+document.querySelector('#board').onclick=()=>{label='隔离障碍：同帧两个碰撞只消耗一块滑板';const g=reset(true);g.action('board');for(let i=0;i<2;i++)g.addEntity({type:'train',x:0,distance:86,width:1.8,depth:6,height:3,visual:null});later(()=>g.pause(),700);};
+document.querySelector('#roll').onclick=()=>{label='隔离障碍：连续翻滚后恢复';const g=reset(true);for(let i=0;i<25;i++)later(()=>g.action('roll'),i*130);later(()=>g.pause(),4200);};
+document.querySelector('#pause').onclick=()=>r.game.pause();document.querySelector('#portrait').onclick=()=>document.body.classList.toggle('portrait');
+</script></html>

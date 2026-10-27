@@ -5,6 +5,7 @@ import { runnerEntityContact } from './classic-contact.js';
 import { classicVerticalMotion } from './classic-vertical.js';
 import { Jetpack } from './jetpack.js';
 import { makeFlightCoins } from './flight-coins.js';
+import { makeHeadstartRewards } from './headstart-rewards.js';
 import { Hoverboard, HOVERBOARD_BROWSER_ADAPTER } from './hoverboard.js';
 import { DEFAULT_CONFIG } from './config.js';
 import { SourceClassicIntro } from './classic-intro.js';
@@ -392,8 +393,13 @@ export class RunnerGame {
   step(dt) {
     const s = this.state, p = s.player, c = this.config;
     const previousDistance = s.distance, previousX = p.x;
-    this.previousFixedPosition = this.lastFixedPosition;
-    this.lastFixedPosition = [p.x, p.y, s.distance];
+    const position = [p.x, p.y, s.distance];
+    // Character.SetPreviousFixedUpdatePosition81907 retains the last distinct
+    // pair. Native squared epsilon is 1e-10; browser coordinates scale by .1.
+    if (position.reduce((sum, value, i) => sum + (value - this.lastFixedPosition[i]) ** 2, 0) >= Math.fround(1e-10) * .01) {
+      this.previousFixedPosition = this.lastFixedPosition;
+      this.lastFixedPosition = position;
+    }
     const stumble = this.collisionState.step(dt, { flying: !!s.flight });
     s.stumble = this.collisionState.snapshot();
     if (s.reaction?.remaining != null) { s.reaction.remaining -= dt; if (s.reaction.remaining <= 0) s.reaction = null; }
@@ -409,6 +415,7 @@ export class RunnerGame {
         const target = this.routeGenerator?.scheduleJetpackLanding?.(flight.targetZ, this.nextSection,
           c.maximumSpeed * Math.sqrt(2 * 12 / c.gravity) + c.playerRadius + c.maximumSpeed * dt * 2);
         if (target != null) flight = this.jetpack.extendTarget(target);
+        this.placeHeadstartRewards(flight);
       }
       if (!flight.active) {
         if (flight.headstart) {
@@ -459,7 +466,21 @@ export class RunnerGame {
     if (s.flight) {
       p.y = s.flight.y; p.velocityY = 0; p.grounded = false;
     } else {
+      // Running.Begin82564: ApplyGravity observes the controller contact from
+      // the previous MoveForward. Physical support below is distinct from the
+      // next iteration's animation/landing notification (81737).
+      if (p.velocityY < 0 && p.grounded) {
+        const notifyLanding = p.isJumping || p.isFalling;
+        const impactVelocity = p.velocityY;
+        p.isJumping = false; p.isFalling = false; p.transitionFromHeight = false;
+        this.ceiling = { hit: false, minY: 0, evaded: true };
+        if (notifyLanding) this.events.push({ type: 'land', velocityY: impactVelocity, rolling: p.rollRemaining > 0 });
+        p.velocityY = 0;
+      }
       p.velocityY -= c.gravity * dt;
+      if (!p.grounded && !p.isFalling && p.rollRemaining <= 0 && p.velocityY < -1) {
+        p.isFalling = true; this.events.push({ type: 'hangtime' });
+      }
       const motion = classicVerticalMotion({ y: p.y, velocityY: p.velocityY, dt, gravity: c.gravity,
         jumping: p.isJumping, ceiling: this.ceiling,
         triggerMaxY: p.y + (p.rollRemaining > 0 ? c.rollingBottom + c.rollingHeight : c.standingBottom + c.standingHeight),
@@ -469,18 +490,15 @@ export class RunnerGame {
     }
     const floor = this.surfaceHeight(s.distance, p.x, previousY);
     if (!s.flight && p.y <= floor && p.velocityY <= 0) {
-      if (!p.grounded) this.events.push({ type: 'land', velocityY: p.velocityY, rolling: p.rollRemaining > 0 });
       p.y = floor;
-      p.velocityY = 0;
       p.grounded = true;
-      p.isJumping = false; p.isFalling = false; p.lastGroundedY = floor; p.transitionFromHeight = false;
-      this.ceiling = { hit: false, minY: 0, evaded: true };
-      if (p.inAirJump) this.action('jump');
+      // MoveForward81723 stores the Y captured before controller.Move.
+      p.lastGroundedY = previousY;
+      // CheckInAirJump81733 follows MoveForward: a buffered jump can relaunch
+      // immediately, before the next ApplyGravity would notify a landing.
+      if (p.inAirJump) { p.transitionFromHeight = false; this.action('jump'); }
     } else p.grounded = false;
     p.floor = floor;
-    if (!s.flight && !p.grounded && !p.isFalling && p.rollRemaining <= 0 && p.velocityY < -1) {
-      p.isFalling = true; this.events.push({ type: 'hangtime' });
-    }
 
     // Score only new whole meters with the multiplier active at that instant.
     // Enabling 2x must never retroactively double the distance already run.
@@ -489,11 +507,18 @@ export class RunnerGame {
     s.scoredMeters = meters;
 
     for (const e of this.entities) {
+      // Each native Enter rechecks live game state. A rebound or absorbed
+      // board hit does not suppress other Enter callbacks in the same step.
+      // Entity order remains our deterministic adapter, not PhysX ordering.
+      if (s.phase !== 'running') break;
       if (e.collected) continue;
       const x = e.x ?? (e.lane - 1) * c.laneSpacing;
       const longitudinal = e.distance - s.distance;
       if (e.type === 'powerup') {
-        if (s.flight) continue;
+        // Character.TriggerEnter81966 uses a 70-native-unit altitude band,
+        // not a blanket flight prohibition. Takeoff disables the collider.
+        if (s.flight && !s.flight.characterColliderEnabled) continue;
+        if ((p.y >= 7) !== ((e.pickupRootY ?? e.y ?? 0) >= 7)) continue;
         if (touchesPowerup(e, p, s.distance, previousDistance) && this.activatePowerup(e.powerup)) e.collected = true;
         continue;
       }
@@ -558,7 +583,7 @@ export class RunnerGame {
           obstacleLayer: e.sourceLayer ?? 'Hit', isTrigger: !!e.sourceIsTrigger, gravityNative: c.gravity / .1,
         });
         this.ceiling = resolved.ceiling;
-        let critical = false, movingHit = false;
+        let movingHit = false;
         for (const action of resolved.actions) {
           if (action.type === 'disableForward') p.canAccelerateForward = false;
           if (action.type === 'setVerticalSpeed') {
@@ -590,10 +615,8 @@ export class RunnerGame {
             // protection. A protected impact still has collision feedback.
             this.events.push({ type: 'critical-hit', obstacle: e.type });
             this.fatalHit(e, movingHit ? 'death_moving_train' : resolved.impact.y === 'upper' ? 'death_upper' : 'death_bounce');
-            critical = true;
           }
         }
-        if (critical || resolved.actions.some(action => action.type === 'rebound')) break;
       }
     }
     this.contacts = nextContacts;
@@ -662,10 +685,19 @@ export class RunnerGame {
     this.endRoll('jetpack');
     p.sneakersJump = null; p.grounded = false; p.velocityY = 0;
     this.hoverboard.state.flying = true;
-    // Headstart bypasses the ordinary jetpack coin-line branch. Its separate
-    // account-gated end rewards are outside this local demo.
-    if (!headstart) for (const coin of makeFlightCoins({ start: flight.coinStartDistance,
+    if (headstart) this.placeHeadstartRewards(flight);
+    // Headstart bypasses the ordinary jetpack coin-line branch.
+    else for (const coin of makeFlightCoins({ start: flight.coinStartDistance,
       length: Math.max(0, flight.coinLength), height: 9.5, random: this.random }).coins) this.addEntity(coin);
+  }
+
+  placeHeadstartRewards(flight) {
+    // Each PlacePickups first resets the old row, including on turbo/route
+    // retarget. Normal flight completion keeps uncollected choices in place;
+    // the next placement or menu reset owns their lifecycle.
+    this.entities = this.entities.filter(e => !e.headstartReward);
+    for (const reward of makeHeadstartRewards({ flight, random: this.random,
+      pickupSystemVersion: this.config.pickupSystemVersion })) this.addEntity(reward);
   }
 
   attractCoin(coin) {
