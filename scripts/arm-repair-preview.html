@@ -1,0 +1,21 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>黄色角色网格修复验证</title>
+<style>body{margin:0;background:#e5e9df;color:#18312e;font:14px system-ui}nav{position:fixed;top:12px;left:12px;right:12px;display:flex;flex-wrap:wrap;gap:7px}button{padding:9px 12px;border:0;border-radius:7px;background:white;color:inherit}output{position:fixed;bottom:12px;left:12px;right:12px;background:#ffffffdd;padding:10px;border-radius:8px}canvas{display:block}</style>
+<nav><button data-clip="idle_paint" data-time=".4">喷漆抬手</button><button data-clip="idle_paint" data-time="7">摇罐</button><button data-clip="idle_paint" data-time="13.2">喷漆后段</button><button data-clip="run" data-time=".1">跑步前摆</button><button data-clip="run" data-time=".3">跑步后摆</button><button data-clip="roll" data-time=".15">翻滚起段</button><button data-clip="roll" data-time=".3">翻滚中段</button><button data-clip="roll" data-time=".49">翻滚收尾</button><button id="play">播放动作</button><button id="front">正面</button><button id="side">侧面</button><button id="back">背面</button></nav><output id="status">读取修复后的模型…</output>
+<script type="module">
+import * as T from 'three';
+import {loadYellowCharacter} from '/src/asset-adapter.js';
+const renderer=new T.WebGLRenderer({antialias:true});renderer.setSize(innerWidth,innerHeight);renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.outputColorSpace=T.SRGBColorSpace;document.body.append(renderer.domElement);
+const scene=new T.Scene();scene.background=new T.Color('#e5e9df');scene.add(new T.HemisphereLight(0xffffff,0x777766,2));const sun=new T.DirectionalLight(0xffffff,2.5);sun.position.set(-3,5,5);scene.add(sun);
+const camera=new T.PerspectiveCamera(38,innerWidth/innerHeight,.01,100);camera.position.set(0,1.35,4.7);camera.lookAt(0,1.1,0);
+const character=await loadYellowCharacter(),report=await fetch('/assets/character/yellow-runner.json').then(r=>r.json());scene.add(character.object);character.object.rotation.y=Math.PI;
+let paused=true,last=performance.now(),clip='idle_paint',selectedTime=.4,token=0;
+function pose(name,time){clip=name;selectedTime=time;paused=true;character.mixer.stopAllAction();character.setAnimation(name,undefined,++token,{fade:0});character.mixer.update(time);document.querySelector('#play').textContent='播放动作';}
+pose(clip,selectedTime);
+document.querySelectorAll('[data-clip]').forEach(b=>b.onclick=()=>pose(b.dataset.clip,Number(b.dataset.time)));
+document.querySelector('#play').onclick=()=>{paused=!paused;document.querySelector('#play').textContent=paused?'播放动作':'暂停动作';};
+document.querySelector('#front').onclick=()=>character.object.rotation.y=Math.PI;
+document.querySelector('#side').onclick=()=>character.object.rotation.y=Math.PI/2;
+document.querySelector('#back').onclick=()=>character.object.rotation.y=0;
+addEventListener('resize',()=>{renderer.setSize(innerWidth,innerHeight);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();});
+function frame(now){const dt=Math.min((now-last)/1000,.05);last=now;if(!paused)character.mixer.update(dt);const action=character.mixer._actions.find(a=>a.getClip().name===clip);renderer.render(scene,camera);document.querySelector('#status').textContent=`${paused?'定格':'播放'} · ${clip} · ${action?.time.toFixed(3)} 秒 · 26 根骨骼 / ${report.clips.length} 条动作 · ${report.meshStats.reduce((n,m)=>n+m.triangles,0)} 三角形 · ${report.sha256.slice(0,12)}`;requestAnimationFrame(frame)}requestAnimationFrame(frame);
+</script></html>

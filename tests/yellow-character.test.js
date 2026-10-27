@@ -8,6 +8,12 @@ import { RunnerGame } from '../src/game-core.js';
 const bytes = fs.readFileSync(new URL('../public/assets/character/yellow-runner.glb', import.meta.url));
 const length = bytes.readUInt32LE(12), document = JSON.parse(bytes.subarray(20, 20 + length));
 const report = JSON.parse(fs.readFileSync(new URL('../public/assets/character/yellow-runner.json', import.meta.url)));
+function accessor(index) {
+  const a=document.accessors[index],view=document.bufferViews[a.bufferView],binary=bytes.subarray(28+length);
+  const types={5126:Float32Array,5125:Uint32Array,5123:Uint16Array},width={SCALAR:1,VEC2:2,VEC3:3,VEC4:4,MAT4:16}[a.type],Type=types[a.componentType];
+  const start=(view.byteOffset??0)+(a.byteOffset??0);
+  return new Type(Uint8Array.from(binary.subarray(start,start+a.count*width*Type.BYTES_PER_ELEMENT)).buffer);
+}
 function withoutTextures() {
   // Node exercises the real GLTFLoader, skinning and animation controller; image
   // decoding/material appearance is covered by the browser visual check.
@@ -49,9 +55,46 @@ test('yellow GLB loads as a skinned, grounded player with normalized four-joint 
       assert.ok(Math.abs(total-1) < 1e-5); vertices++;
     }
   });
-  assert.equal(meshes, 2); assert.ok(vertices > 30000);
+  assert.equal(meshes, 3); assert.ok(vertices > 30000);
   const box = bounds(character);
   assert.ok(Math.abs(box.min.y) < .005); assert.ok(Math.abs(box.max.y - 1.95) < .005);
+});
+
+test('repaired abdomen cannot be dragged by arm bones, and inner hand vertices keep their own limb weights',()=>{
+  const bones=document.skins[0].joints.map(i=>document.nodes[i].name);
+  let body=0,arms=0;
+  for(const p of document.meshes.find(m=>m.extras?.skinRegion==='upperbody').primitives){
+    const positions=accessor(p.attributes.POSITION),regions=accessor(p.attributes._ARM_REGION),joints=accessor(p.attributes.JOINTS_0),weights=accessor(p.attributes.WEIGHTS_0);
+    for(let i=0;i<regions.length;i++){
+      if(positions[i*3+1]>=-.12)continue; // continuous shoulder socket deliberately blends
+      if(regions[i]<.01){
+        body++;
+        for(let k=0;k<4;k++)if(weights[i*4+k]>1e-7)assert.ok(!/Shoulder|Elbow|Hand|Clavicle/.test(bones[joints[i*4+k]]),'abdomen has an arm influence');
+      }else if(regions[i]>.99){
+        arms++;const side=positions[i*3]<0?'L_':'R_';
+        for(let k=0;k<4;k++)if(weights[i*4+k]>1e-7)assert.ok(bones[joints[i*4+k]].startsWith(side)&&/Shoulder|Elbow|Hand/.test(bones[joints[i*4+k]]),'free arm has torso/opposite-side weights');
+      }else assert.fail('free limb region was blended across the cut');
+    }
+  }
+  assert.ok(body>10000);assert.ok(arms>5000);
+});
+
+test('repaired upper-body surfaces have closed material seams and no disconnected shoulder sleeve',()=>{
+  const mesh=document.meshes.find(m=>m.extras?.skinRegion==='upperbody'),positions=[],faces=[];
+  for(const p of mesh.primitives){
+    const a=accessor(p.attributes.POSITION),idx=accessor(p.indices),offset=positions.length;
+    for(let i=0;i<a.length;i+=3)positions.push([a[i],a[i+1],a[i+2]]);
+    for(let i=0;i<idx.length;i+=3)faces.push([idx[i]+offset,idx[i+1]+offset,idx[i+2]+offset]);
+  }
+  const unique=new Map(),ids=positions.map(v=>{const key=v.map(x=>Math.round(x*1e6)).join(',');if(!unique.has(key))unique.set(key,unique.size);return unique.get(key);});
+  const edges=new Map(),neighbors=Array.from({length:unique.size},()=>new Set());
+  for(const f of faces){const vertices=f.map(i=>ids[i]);if(new Set(vertices).size<3)continue;
+    for(let i=0;i<3;i++){const a=vertices[i],b=vertices[(i+1)%3],key=a<b?`${a},${b}`:`${b},${a}`;edges.set(key,(edges.get(key)??0)+1);neighbors[a].add(b);neighbors[b].add(a);}
+  }
+  assert.equal([...edges.values()].filter(n=>n===1).length,0,'open edge at reconstructed surface');
+  const seed=positions.findIndex(v=>Math.abs(v[0])<.15&&v[1]<-.15),visited=new Set([ids[seed]]),queue=[ids[seed]];
+  for(let i=0;i<queue.length;i++)for(const next of neighbors[queue[i]])if(!visited.has(next)){visited.add(next);queue.push(next);}
+  for(const sign of [-1,1])assert.ok(positions.some((v,i)=>sign*v[0]>.39&&v[1]<-.25&&visited.has(ids[i])),'hand is disconnected from the continuous shoulder');
 });
 
 test('recovered run motion moves the yellow legs and keeps the skinned mesh above ground', async () => {

@@ -1,9 +1,9 @@
 {
-  "input": "outputs/yellow-character-47e54de8/yellow-character-full-body.glb",
+  "input": "outputs/yellow-character-47e54de8/yellow-character-arms-repaired.glb",
   "output": "web/public/assets/character/yellow-runner.glb",
-  "sourceBytes": 58272900,
-  "bytes": 9687864,
-  "sha256": "a27278487f1b76787bca97a14567745cefe121581fcd7c30ac5a8f78875e15f3",
+  "sourceBytes": 5472980,
+  "bytes": 9890708,
+  "sha256": "5d378d6bd6096d0f0f84a6e8987445860dcb4f3c98ee6fd6ab2cbe219e3c59ad",
   "bones": [
     {
       "name": "Root_jnt",
@@ -242,16 +242,28 @@
   ],
   "meshStats": [
     {
-      "originalTriangles": 1995054,
-      "triangles": 69982,
-      "vertices": 37499,
-      "error": 0.0017524096183478832
+      "region": "upperbody",
+      "primitive": 0,
+      "originalTriangles": 68298,
+      "triangles": 65000,
+      "vertices": 35960,
+      "error": 0.001336952205747366
     },
     {
-      "originalTriangles": 371892,
+      "region": "upperbody",
+      "primitive": 1,
+      "originalTriangles": 5804,
+      "triangles": 2944,
+      "vertices": 2602,
+      "error": 0.007990884594619274
+    },
+    {
+      "region": "legs",
+      "primitive": 0,
+      "originalTriangles": 10000,
       "triangles": 10000,
       "vertices": 5004,
-      "error": 0.005073734559118748
+      "error": 0
     }
   ],
   "clips": [
@@ -264,7 +276,7 @@
       "duration": 1.2083332538604736,
       "frames": 146,
       "mappedBones": 26,
-      "maximumHeight": 1.4669389356657199,
+      "maximumHeight": 1.4669856302849722,
       "groundCorrection": [
         -0.4535844120752369,
         0.1038023340848192
@@ -279,7 +291,7 @@
       "duration": 23.54166603088379,
       "frames": 1414,
       "mappedBones": 26,
-      "maximumHeight": 1.5491520073195284,
+      "maximumHeight": 1.5494121496346351,
       "groundCorrection": [
         -0.8540986205608907,
         0.14096711164231812
@@ -324,10 +336,10 @@
       "duration": 0.5416669845581055,
       "frames": 67,
       "mappedBones": 26,
-      "maximumHeight": 1.4892474532367665,
+      "maximumHeight": 1.4892247693350513,
       "groundCorrection": [
         -0.01224752810850227,
-        0.47482638595031657
+        0.4843331194690528
       ]
     },
     {
@@ -339,7 +351,7 @@
       "duration": 0.47999998927116394,
       "frames": 59,
       "mappedBones": 26,
-      "maximumHeight": 0.7507162796601593,
+      "maximumHeight": 0.7507021620621835,
       "groundCorrection": [
         -0.09911003893109793,
         -0.05145243815180911
@@ -354,7 +366,7 @@
       "duration": 1.0416666269302368,
       "frames": 126,
       "mappedBones": 26,
-      "maximumHeight": 1.4237197773490622,
+      "maximumHeight": 1.423655536299592,
       "groundCorrection": [
         -0.1062290357720288,
         0.01793967859893797
@@ -387,7 +399,7 @@
       "maximumHeight": 1.231753944026854,
       "groundCorrection": [
         -0.08402496400934689,
-        0.08559403536165067
+        0.08577777436256773
       ]
     },
     {
@@ -399,7 +411,7 @@
       "duration": 0.33333396911621094,
       "frames": 42,
       "mappedBones": 26,
-      "maximumHeight": 1.4118218138763425,
+      "maximumHeight": 1.411705479365992,
       "groundCorrection": [
         -0.07682076076623867,
         -0.0511927206184577
@@ -414,7 +426,7 @@
       "duration": 0.45833587646484375,
       "frames": 57,
       "mappedBones": 26,
-      "maximumHeight": 1.4206204732727594,
+      "maximumHeight": 1.420960454992516,
       "groundCorrection": [
         -0.2840024023096275,
         0.09459644082214946
@@ -432,7 +444,7 @@
       "maximumHeight": 1.4165983172988668,
       "groundCorrection": [
         -0.06023114024790088,
-        0.33633944017723616
+        0.18645771805552136
       ]
     },
     {
@@ -444,10 +456,10 @@
       "duration": 0.5416679382324219,
       "frames": 67,
       "mappedBones": 26,
-      "maximumHeight": 1.4134901384487664,
+      "maximumHeight": 1.4133600212119661,
       "groundCorrection": [
         -0.14501347129703368,
-        0.22514354719269924
+        0.17222034835381028
       ]
     },
     {
@@ -459,10 +471,10 @@
       "duration": 0.39999985694885254,
       "frames": 49,
       "mappedBones": 26,
-      "maximumHeight": 0.9132936180028663,
+      "maximumHeight": 0.8502658947151109,
       "groundCorrection": [
         -0.09487993079087398,
-        0.23792989504906426
+        0.19099143012122588
       ]
     },
     {
@@ -474,10 +486,10 @@
       "duration": 0.39999985694885254,
       "frames": 49,
       "mappedBones": 26,
-      "maximumHeight": 0.9175481078855134,
+      "maximumHeight": 0.8527260457134,
       "groundCorrection": [
-        -0.10163874612456025,
-        0.2202737952368523
+        -0.10444748368674417,
+        0.16088563318459315
       ]
     },
     {
@@ -492,7 +504,7 @@
       "maximumHeight": 1.5196566056219716,
       "groundCorrection": [
         -0.03636466222881274,
-        0.2981689055737946
+        0.29794249457322075
       ]
     },
     {
@@ -519,10 +531,10 @@
       "duration": 0.5,
       "frames": 61,
       "mappedBones": 26,
-      "maximumHeight": 1.4187703572900543,
+      "maximumHeight": 1.4189487335346973,
       "groundCorrection": [
         -0.12624172426945834,
-        0.30011786530387985
+        0.3001470096224841
       ]
     },
     {
@@ -534,9 +546,9 @@
       "duration": 1.458333969116211,
       "frames": 177,
       "mappedBones": 26,
-      "maximumHeight": 1.5129916674192228,
+      "maximumHeight": 1.5170133684539207,
       "groundCorrection": [
-        -1.9971200474432353,
+        -1.9936995740893861,
         -0.015593243512441735
       ]
     },
@@ -549,9 +561,9 @@
       "duration": 0.625,
       "frames": 76,
       "mappedBones": 26,
-      "maximumHeight": 1.1762456925129094,
+      "maximumHeight": 1.147301793595538,
       "groundCorrection": [
-        -0.022779373992606877,
+        -0.023100815216640536,
         0.1999218106377325
       ]
     },
@@ -567,7 +579,7 @@
       "maximumHeight": 1.4012446713332718,
       "groundCorrection": [
         0.06268633631518639,
-        0.1102468167809858
+        0.11903851900355256
       ]
     },
     {
@@ -624,7 +636,7 @@
       "duration": 0.9000000357627869,
       "frames": 110,
       "mappedBones": 26,
-      "maximumHeight": 1.412020173397934,
+      "maximumHeight": 1.4121815082761802,
       "groundCorrection": [
         -0.4950273259844846,
         0.13871141261036146
@@ -654,10 +666,10 @@
       "duration": 3.9200000762939453,
       "frames": 472,
       "mappedBones": 26,
-      "maximumHeight": 1.4644840965605284,
+      "maximumHeight": 1.4644036411648829,
       "groundCorrection": [
         0,
-        0.36428688513834206
+        0.374651015639738
       ]
     },
     {
@@ -669,7 +681,7 @@
       "duration": 3.9200000762939453,
       "frames": 472,
       "mappedBones": 26,
-      "maximumHeight": 1.540450970059259,
+      "maximumHeight": 1.5404433324549403,
       "groundCorrection": [
         0.056448633387852554,
         0.5155282100061005
@@ -687,7 +699,7 @@
       "maximumHeight": 1.476756192094376,
       "groundCorrection": [
         0,
-        0.5143438226460311
+        0.40388777413293275
       ]
     },
     {
@@ -701,7 +713,7 @@
       "mappedBones": 26,
       "maximumHeight": 1.5648523368773257,
       "groundCorrection": [
-        0.04156737198263527,
+        0.04150395760948733,
         0.4305471469866622
       ]
     },
@@ -714,10 +726,10 @@
       "duration": 4,
       "frames": 481,
       "mappedBones": 26,
-      "maximumHeight": 1.5822582394562237,
+      "maximumHeight": 1.526895900959698,
       "groundCorrection": [
         0,
-        0.5932184791001247
+        0.5930275902586004
       ]
     },
     {
@@ -729,10 +741,10 @@
       "duration": 1,
       "frames": 121,
       "mappedBones": 26,
-      "maximumHeight": 1.4069797796306598,
+      "maximumHeight": 1.4068468276214117,
       "groundCorrection": [
-        -0.40052779707990305,
-        0.22336835491237061
+        -0.40052280942303686,
+        0.22318500490717352
       ]
     },
     {
@@ -774,7 +786,7 @@
       "duration": 0.16666698455810547,
       "frames": 22,
       "mappedBones": 26,
-      "maximumHeight": 1.4586889519208444,
+      "maximumHeight": 1.4584404176230108,
       "groundCorrection": [
         0.05838350304532447,
         0.15087160964981727
@@ -789,7 +801,7 @@
       "duration": 0.20833587646484375,
       "frames": 27,
       "mappedBones": 26,
-      "maximumHeight": 1.408655580072441,
+      "maximumHeight": 1.408518665047919,
       "groundCorrection": [
         -0.058754492008375014,
         0.15285233105553386
@@ -804,9 +816,9 @@
       "duration": 0.4166679382324219,
       "frames": 52,
       "mappedBones": 26,
-      "maximumHeight": 1.2096394956555083,
+      "maximumHeight": 1.2098670156344897,
       "groundCorrection": [
-        -0.05478417954858905,
+        -0.058046197247380804,
         0.1377930145016073
       ]
     },
@@ -819,10 +831,10 @@
       "duration": 0.4166679382324219,
       "frames": 52,
       "mappedBones": 26,
-      "maximumHeight": 1.089900185787708,
+      "maximumHeight": 1.0899369513517545,
       "groundCorrection": [
-        0.026255850819132842,
-        0.1766891653417877
+        -0.02695337428043243,
+        0.17575918662301793
       ]
     },
     {
@@ -834,7 +846,7 @@
       "duration": 4.583335876464844,
       "frames": 552,
       "mappedBones": 26,
-      "maximumHeight": 1.4805200361397095,
+      "maximumHeight": 1.480561533763794,
       "groundCorrection": [
         -0.14191153855877214,
         0.1780192864912986
@@ -849,7 +861,7 @@
       "duration": 0.5000004768371582,
       "frames": 62,
       "mappedBones": 26,
-      "maximumHeight": 1.372393192907528,
+      "maximumHeight": 1.372500608202785,
       "groundCorrection": [
         0.025072230359992842,
         0.06978410361401688
@@ -864,7 +876,7 @@
       "duration": 0.5416667461395264,
       "frames": 67,
       "mappedBones": 26,
-      "maximumHeight": 1.2636909335235842,
+      "maximumHeight": 1.263684799475972,
       "groundCorrection": [
         -0.09279481055695804,
         -0.05543609714587927
@@ -879,7 +891,7 @@
       "duration": 0.5416717529296875,
       "frames": 67,
       "mappedBones": 26,
-      "maximumHeight": 1.1632770220467865,
+      "maximumHeight": 1.1633573794995722,
       "groundCorrection": [
         -0.2252428136757908,
         -0.007083057060601972
@@ -918,13 +930,93 @@
   ],
   "provenance": {
     "sourceTask": "47e54de8a9174127b6f711713b71cf1a",
-    "sourceSha256": "182b1df7e2cb1b4fbe46754e33713c64038cf11125f3bd75879d1526c91f3141",
+    "sourceSha256": "31f7722d50f705b7f43c9ba4846a8c2838d0ec4e8135a72231504b6fbb3611a4",
     "animationSource": "User-provided Subway Surfers 7.07.0 APK, recovered Jake rig and run/jump/roll/jetpack/hoverboard/classic collision curves",
+    "topologyRepair": {
+      "input_sha256": "a27278487f1b76787bca97a14567745cefe121581fcd7c30ac5a8f78875e15f3",
+      "method": "Manifold subtraction of rounded underarm slots; original continuous shoulders and UVs retained",
+      "parts": [
+        {
+          "region": "upperbody",
+          "source_surface_triangles": 68298,
+          "reconstructed_triangles": 5804,
+          "source_manifold_status": "Error.NoError",
+          "repaired_manifold_status": "Error.NoError",
+          "continuous_shoulders": true,
+          "slot_top_y": -0.035,
+          "slot_halfwidth": 0.014
+        }
+      ],
+      "armCenterline": [
+        [
+          -0.57,
+          0.35
+        ],
+        [
+          -0.47,
+          0.35
+        ],
+        [
+          -0.4,
+          0.344
+        ],
+        [
+          -0.32,
+          0.336
+        ],
+        [
+          -0.24,
+          0.329
+        ],
+        [
+          -0.16,
+          0.306
+        ],
+        [
+          -0.08,
+          0.285
+        ],
+        [
+          -0.035,
+          0.275
+        ]
+      ],
+      "connectivityRegions": [
+        {
+          "vertices": 3404,
+          "center": [
+            -0.36640265583992004,
+            -0.2945081889629364,
+            0.009686840698122978
+          ],
+          "arm": true
+        },
+        {
+          "vertices": 16546,
+          "center": [
+            -0.003328477730974555,
+            -0.3289619982242584,
+            -0.010149067267775536
+          ],
+          "arm": false
+        },
+        {
+          "vertices": 3358,
+          "center": [
+            0.3653668463230133,
+            -0.2919948399066925,
+            0.008382042869925499
+          ],
+          "arm": true
+        }
+      ]
+    },
     "adaptations": [
       "26-bone skeleton proportions fitted to full-body yellow model",
-      "New skin weights for yellow mesh",
+      "Region-isolated abdominal weights with a continuous shoulder socket; free arms follow their own limb chain",
       "T-pose to hanging-arm rest alignment",
-      "Reduced arm rotation amplitude for fused arm/torso geometry",
+      "Continuous source shoulders; fused underarm skin bridges cut away and medial surfaces reconstructed",
+      "Source arm rotations fitted to short limb proportions",
       "In-place motion with floor correction; constant body scale",
       "Roll endpoint blended to start for sustained looping"
     ]
