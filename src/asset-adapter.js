@@ -232,7 +232,10 @@ export async function loadRecoveredPack(base = assetUrl('recovered/'), { include
   const oldChaserMeshes = new Set(Object.values(manifest.chaserActors ?? {}).flatMap(actor => actor.meshes.map(mesh => mesh.key)));
   const meshEntries = Object.entries(manifest.meshes).filter(([name]) => includeChasers || !oldChaserMeshes.has(name));
   const textures = Object.fromEntries(await Promise.all(Object.entries(manifest.textures).map(async ([name, info]) => {
-    const texture = await textureLoader.loadAsync(base + info.file);
+    // Replace only the opening train's poster; retain the recovered source asset.
+    const url = name === 'v3_MexicoCity_train_start_0c592df6'
+      ? assetUrl('custom/intro-poster.png') : base + info.file;
+    const texture = await textureLoader.loadAsync(url);
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.anisotropy = 4;
     return [name, texture];
