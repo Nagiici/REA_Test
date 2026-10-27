@@ -1,0 +1,31 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>经典动作碰撞与镜头验证</title>
+<style>body{margin:0;background:#123839;color:#edf3da;font:13px system-ui}iframe{display:block;border:0;width:100%;height:calc(100dvh - 190px)}nav{display:flex;flex-wrap:wrap;gap:7px;padding:10px}button{padding:8px 12px;border:0;border-radius:6px;background:#e9efce;color:#143e3c}output{display:block;white-space:pre-wrap;padding:0 12px;font-size:12px}</style>
+<iframe src="/" title="经典模式场景"></iframe>
+<nav><button id="chain">滑板跳滚衔接</button><button id="impact">滑板撞列车</button><button id="air-hit">空中受击下落</button><button id="grounded">受击落地后</button><button id="autopilot">死亡列车驶过</button><button id="tunnel">隧道镜头下压</button><button id="exit">隧道镜头恢复</button><button id="flight-exit">背包结束动作</button><button id="roll">连续翻滚</button><button id="pause">暂停／继续</button></nav>
+<output id="status">等待角色资源…</output>
+<script type="module">
+import {SourceRouteGenerator} from '/src/route-generator.js';
+const frame=document.querySelector('iframe'),out=document.querySelector('output');let r,route,jobs=[],failures=[],history=[];
+const later=(fn,ms)=>jobs.push(setTimeout(fn,ms));
+function reset(){jobs.forEach(clearTimeout);jobs=[];history=[];const g=r.game;g.routeGenerator=route;g.reset();g.routeGenerator=null;g.entities=g.entities.filter(e=>e.type==='decoration'&&(e.provenance?.environment||/track/i.test(e.visual?.prefabKey??'')));g.nextSection=1e9;const intro=g.introOptions;g.introOptions=null;g.start();g.introOptions=intro;g.state.distance=80;return g;}
+const freeze=ms=>later(()=>r.game.pause(),ms);
+frame.addEventListener('load',()=>{frame.contentWindow.addEventListener('error',e=>failures.push(e.message));const style=frame.contentDocument.createElement('style');style.textContent='#menu{visibility:hidden}';frame.contentDocument.head.append(style);});
+setInterval(()=>{
+ if(!r&&frame.contentWindow.__runner?.ready){r=frame.contentWindow.__runner;route=r.game.routeGenerator;const drain=r.game.drainEvents.bind(r.game);r.game.drainEvents=()=>{const events=drain();history.push(...events.map(e=>e.type));history=history.slice(-20);return events;};}
+ if(!r)return;const s=r.game.state,c=r.cameraController.snapshot(),a=r.character.getAnimationSnapshot().current;
+ out.textContent=`本地隔离场景 · ${s.phase}/${s.pausedFrom??''} · 动作 ${a.name} · 距离 ${s.distance.toFixed(2)} · 高度 ${s.player.y.toFixed(3)} · 落地 ${s.player.grounded} · 翻滚 ${s.player.rollRemaining.toFixed(3)}\n镜头 Y ${c.position[1].toFixed(3)} · FOV ${c.fov.toFixed(2)} · 震屏 ${c.shakeOffset.map(v=>v.toFixed(3)).join(',')} · 隧道起点 ${r.tunnelModifiers.lastEntry?.startZ.toFixed(2)??'无'}\n落地等待 ${!!s.deathGrounding} / ${s.deathGroundingResult??''} · 结算等待 ${s.catchRemaining.toFixed(3)} · 自动行驶 ${r.game.entities.filter(e=>e.trainAutopilot).length} · 事件 ${history.join(',')} · 错误 ${[...failures,...r.errors].join('|')||0}`;
+},80);
+document.querySelector('#chain').onclick=()=>{const g=reset();g.action('left');later(()=>g.action('board'),80);later(()=>g.action('jump'),160);later(()=>g.action('roll'),420);later(()=>g.action('right'),600);freeze(1800);};
+document.querySelector('#impact').onclick=()=>{const g=reset();g.action('board');g.addEntity({type:'train',lane:1,distance:81.1,width:2,depth:1,sourceTag:'HitMovingTrain'});freeze(130);};
+function airHit(delay){const g=reset();g.action('jump');later(()=>g.fatalHit({type:'barrier'}),180);freeze(delay);}
+document.querySelector('#air-hit').onclick=()=>airHit(350);
+document.querySelector('#grounded').onclick=()=>airHit(1200);
+function sourceChunk(predicate){const generator=new SourceRouteGenerator(r.pack.routeLibrary,{seed:40});for(const id of Object.keys(r.pack.routeLibrary.routes)){const chunk=generator.compileChunk(id,{startDistance:100,speed:11,playerDistance:80});if(chunk.entities.some(predicate))return chunk;}throw Error('缺少源场景');}
+document.querySelector('#autopilot').onclick=()=>{const g=reset(),chunk=sourceChunk(e=>e.movingTrainProxy);const proxy=chunk.entities.find(e=>e.movingTrainProxy);for(const e of chunk.entities.filter(e=>e.type==='decoration'||e.movingTrainProxy))g.addEntity(e);g.state.distance=proxy.distance-proxy.depth/2-2;g.fatalHit({type:'barrier'});freeze(1000);};
+function tunnel(ms){const g=reset(),chunk=sourceChunk(e=>e.tunnelModifier),trigger=chunk.entities.find(e=>e.tunnelModifier);for(const e of chunk.entities.filter(e=>e.type==='decoration'))g.addEntity(e);g.state.player.x=trigger.x;g.state.player.lane=Math.round(trigger.x/2)+1;g.state.player.laneFrom=trigger.x;g.state.distance=trigger.distance-trigger.depth/2;freeze(ms);}
+document.querySelector('#tunnel').onclick=()=>tunnel(1150);
+document.querySelector('#exit').onclick=()=>tunnel(2600);
+document.querySelector('#flight-exit').onclick=()=>{const g=reset();g.activatePowerup('jetpack');later(()=>{g.action('left');g.state.distance=g.state.flight.targetZ+1;g.state.player.y=9.5;},160);freeze(320);};
+document.querySelector('#roll').onclick=()=>{const g=reset();for(let i=0;i<25;i++)later(()=>g.action('roll'),i*130);freeze(4200);};
+document.querySelector('#pause').onclick=()=>r.game.pause();
+</script></html>

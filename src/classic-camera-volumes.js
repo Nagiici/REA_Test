@@ -96,3 +96,31 @@ export class ClassicCameraVolumes {
 }
 
 export default ClassicCameraVolumes;
+
+/** Legacy Tunnel24152 is a distance modifier, independent of Subway ceiling
+ * limits. OnTriggerEnter captures CURRENT player Z; no OnTriggerExit exists.
+ * Actual source BoxColliders are emitted by SourceRouteGenerator. */
+export class ClassicTunnelModifiers {
+  constructor() { this.state = null; this.contacts = new Set(); this.lastEntry = null; }
+  update(state, entities, camera) {
+    if (state !== this.state) {
+      this.state = state; this.contacts.clear(); this.lastEntry = null; camera.exitCameraModifier();
+    }
+    if (state.phase === 'paused' || state.phase === 'gameover') return this.lastEntry;
+    if (state.phase === 'ready' || state.phase === 'intro') {
+      this.contacts.clear(); this.lastEntry = null; camera.exitCameraModifier(); return null;
+    }
+    if (state.flight?.characterColliderEnabled === false) return this.lastEntry;
+    const contacts = new Set();
+    for (const entity of entities) {
+      if (entity.tunnelModifier == null || !overlapsSubwayVolume(state, entity)) continue;
+      const key = entity.id ?? entity; contacts.add(key);
+      if (!this.contacts.has(key)) {
+        this.lastEntry = { startZ: state.distance, length: entity.tunnelModifier.length, source: entity.provenance?.collider };
+        camera.enterCameraModifier(this.lastEntry);
+      }
+    }
+    this.contacts = contacts;
+    return this.lastEntry;
+  }
+}

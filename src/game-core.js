@@ -74,6 +74,7 @@ export class RunnerGame {
     this.routeGenerator?.reset(seed);
     this.routeTrace = [];
     this.accumulator = 0;
+    this.realtime = 0;
     this.nextId = 0;
     this.events = [];
     this.entities = [];
@@ -85,9 +86,9 @@ export class RunnerGame {
       speed: this.config.initialSpeed, elapsed: 0,
       player: { lane: 1, x: 0, y: 0, velocityY: 0, rollRemaining: 0, rollToken: 0,
         isJumping: false, isFalling: false, lastGroundedY: 0, inAirJump: false, jumpHeight: this.config.jumpHeight,
-        transitionFromHeight: false,
+        transitionFromHeight: false, canAccelerateForward: true,
         grounded: true, floor: 0, laneFrom: 0, laneElapsed: 0, laneDuration: 0 },
-      collision: null, reaction: null, pausedFrom: null, catchRemaining: 0,
+      collision: null, reaction: null, pausedFrom: null, catchRemaining: 0, deathGrounding: null,
     };
     this.jetpack = new Jetpack({ tier: clamp(Math.floor(this.config.powerupTier), 0, 6) });
     this.hoverboard = new Hoverboard(HOVERBOARD_BROWSER_ADAPTER);
@@ -110,7 +111,7 @@ export class RunnerGame {
   }
 
   start() {
-    if (!['ready', 'gameover'].includes(this.state.phase) || this.state.catchRemaining > 0) return;
+    if (!['ready', 'gameover'].includes(this.state.phase) || this.state.catchRemaining > 0 || this.state.deathGrounding) return;
     if (this.state.phase === 'gameover') this.reset();
     if (this.introOptions) {
       this.intro = new SourceClassicIntro(this.introOptions);
@@ -126,7 +127,7 @@ export class RunnerGame {
 
   pause() {
     const s = this.state;
-    if (s.phase === 'intro' || s.phase === 'running' || s.phase === 'reviving' || s.phase === 'gameover' && (this.revival.state.phase === 'offered' || s.catchRemaining > 0)) { s.pausedFrom = s.phase; s.phase = 'paused'; }
+    if (s.phase === 'intro' || s.phase === 'running' || s.phase === 'reviving' || s.phase === 'gameover' && (this.revival.state.phase === 'offered' || s.catchRemaining > 0 || s.deathGrounding)) { s.pausedFrom = s.phase; s.phase = 'paused'; }
     else if (s.phase === 'paused') { s.phase = s.pausedFrom ?? 'running'; s.pausedFrom = null; }
     this.accumulator = 0;
   }
@@ -136,7 +137,7 @@ export class RunnerGame {
     const p = this.state.player;
     if (action === 'board') {
       const activated = this.hoverboard.activate({ flying: !!this.state.flight });
-      if (activated) this.events.push({ type: 'board-start' });
+      if (activated) this.events.push({ type: 'board-start', motion: { jumping: p.isJumping, falling: p.isFalling } });
       return activated;
     }
     if (this.state.flight && !['left', 'right'].includes(action)) return false;
@@ -218,10 +219,13 @@ export class RunnerGame {
 
   get hasActiveClock() {
     return this.state.phase === 'intro' || this.state.phase === 'running' || this.state.phase === 'reviving'
-      || this.state.phase === 'gameover' && (this.revival.state.phase === 'offered' || this.state.catchRemaining > 0);
+      || this.state.phase === 'gameover' && (this.revival.state.phase === 'offered' || this.state.catchRemaining > 0 || !!this.state.deathGrounding);
   }
 
-  advance(seconds) {
+  advance(seconds, { realtimeDelta = seconds } = {}) {
+    // Source grounding timeout uses realtimeSinceStartup; physics and all
+    // animation remain paused. A timeout is acted upon only after resuming.
+    if (Number.isFinite(realtimeDelta)) this.realtime += Math.max(0, realtimeDelta);
     if (!this.hasActiveClock) return;
     this.accumulator += clamp(seconds, 0, 0.1);
     const dt = this.config.fixedStep;
@@ -264,6 +268,28 @@ export class RunnerGame {
     s.levelSpeed = Math.min(c.maximumSpeed, s.levelSpeed + c.acceleration * dt);
     s.speed = s.levelSpeed;
     this.updatePowerupTimes(dt);
+    this.stepTrainAutopilot(dt);
+    if (s.deathGrounding) {
+      const waiting = s.deathGrounding;
+      if (p.grounded || this.realtime >= waiting.deadline) {
+        s.deathGroundingResult = p.grounded ? 'grounded' : 'timeout';
+        s.deathGrounding = null;
+        if (!s.catchRemaining) this.revival.offer();
+      } else {
+        const previousY = p.y;
+        p.sneakersJump = null;
+        // Character.MoveWithGravity81955 cancels upward momentum and moves
+        // only Y. Source CharacterController contact is adapted to our floor.
+        p.velocityY = Math.min(p.velocityY - c.gravity * dt, 0);
+        p.y += p.velocityY * dt;
+        const floor = this.surfaceHeight(s.distance, p.x, previousY);
+        if (p.y <= floor) {
+          p.y = floor; p.velocityY = 0; p.grounded = true;
+          p.lastGroundedY = floor;
+        }
+      }
+      return; // DieSequence's presentation wait starts on the following step.
+    }
     if (s.catchRemaining > 0) {
       s.catchRemaining = Math.max(0, s.catchRemaining - dt);
       if (s.catchRemaining < 1e-8) { s.catchRemaining = 0; this.revival.offer(); }
@@ -280,6 +306,7 @@ export class RunnerGame {
         // The native Revive launch is retained. Moving a browser gap fall to
         // the cleared floor is an explicit coordinate/geometry adapter.
         p.y = Math.max(0, p.y); p.velocityY = Math.sqrt(2 * c.gravity * event.jumpHeightNative * .1);
+        p.canAccelerateForward = true;
         this.endRoll('revive');
         p.grounded = false; p.isJumping = true; p.inAirJump = false; p.sneakersJump = null;
         p.laneFrom = p.x; p.laneElapsed = 0;
@@ -308,6 +335,7 @@ export class RunnerGame {
   fatalHit(entity, animation = 'death_bounce') {
     if (this.protectWithBoard()) return false;
     const s = this.state;
+    if (s.phase === 'gameover') return true;
     s.phase = 'gameover';
     s.collision = { id: entity.id, type: entity.type, distance: s.distance };
     this.setReaction(animation, undefined);
@@ -316,9 +344,28 @@ export class RunnerGame {
     // uses this configured presentation window for its local revive UI;
     // native popup queue/input scheduling is not reproduced exactly.
     s.catchRemaining = this.config.catchPresentationSeconds ?? 0;
-    if (!s.catchRemaining) this.revival.offer();
+    s.deathGrounding = s.player.grounded ? null : { deadline: this.realtime + 5 };
+    this.activateTrainAutopilot();
+    if (!s.catchRemaining && !s.deathGrounding) this.revival.offer();
     this.events.push({ type: 'crash', obstacle: entity.type, animation });
     return true;
+  }
+
+  activateTrainAutopilot() {
+    const groups = new Set();
+    for (const e of this.entities) {
+      // MovingTrain.ActivateAutoPilot uses the static collision proxy's near
+      // face, without a lower distance bound. Visual children share motionId.
+      if (e.movingTrainProxy && e.distance - e.depth / 2 - this.state.distance < 20) {
+        e.collisionDisabled = true; groups.add(e.movingTrainProxy.motionId);
+      }
+    }
+    for (const e of this.entities) if (groups.has(e.motionId)) e.trainAutopilot = true;
+  }
+
+  stepTrainAutopilot(dt) {
+    for (const e of this.entities) if (e.trainAutopilot && e.movingTrain)
+      e.distance -= this.state.speed * e.movingTrain.ratio * dt;
   }
 
   step(dt) {
@@ -339,7 +386,7 @@ export class RunnerGame {
       if (!flight.active) {
         s.flight = null; delete s.powerups.jetpack; p.velocityY = 0;
         this.enterRunningFromHeight();
-        this.events.push({ type: 'powerup-end', powerup: 'jetpack' });
+        this.events.push({ type: 'powerup-end', powerup: 'jetpack', motion: { hoverboard: s.board.active } });
       } else { s.flight = flight; s.powerups.jetpack = Math.max(0, flight.timeLeft); }
     }
     s.speed = s.flight ? s.flight.speed : s.levelSpeed;
@@ -353,6 +400,7 @@ export class RunnerGame {
         s.reaction = null; this.contacts.clear(); this.lastStumbleContact = null;
         // Browser gap recovery: removed gap geometry supplies a safe floor.
         p.y = Math.max(0, p.y); p.velocityY = Math.sqrt(2 * c.gravity * event.jumpHeightNative * 0.1);
+        p.canAccelerateForward = true;
         this.endRoll('board-revive');
         p.grounded = false; p.isJumping = true; p.inAirJump = false; p.sneakersJump = null;
       }
@@ -361,7 +409,8 @@ export class RunnerGame {
     s.distance += s.speed * dt;
     for (const entity of this.entities) {
       entity.previousDistance = entity.distance;
-      if (entity.movingTrain) entity.distance = entity.movingTrain.initialDistance - (s.distance - entity.movingTrain.referencePlayerDistance) * entity.movingTrain.ratio;
+      if (entity.trainAutopilot && entity.movingTrain) entity.distance -= s.speed * entity.movingTrain.ratio * dt;
+      else if (entity.movingTrain) entity.distance = entity.movingTrain.initialDistance - (s.distance - entity.movingTrain.referencePlayerDistance) * entity.movingTrain.ratio;
       else if (entity.velocityZ) entity.distance -= entity.velocityZ * dt;
     }
     p.laneElapsed += dt;
@@ -437,7 +486,7 @@ export class RunnerGame {
         continue;
       }
       if (s.flight) continue;
-      if (e.type === 'ramp' || e.type === 'decoration' || e.type === 'gap') continue;
+      if (e.collisionDisabled || e.type === 'ramp' || e.type === 'decoration' || e.type === 'gap') continue;
       const halfDepth = e.depth / 2 + c.playerRadius;
       const oldRelative = (e.previousDistance ?? e.distance) - previousDistance - c.triggerForwardOffset;
       const newRelative = e.distance - s.distance - c.triggerForwardOffset;
@@ -478,6 +527,7 @@ export class RunnerGame {
         this.ceiling = resolved.ceiling;
         let critical = false, movingHit = false;
         for (const action of resolved.actions) {
+          if (action.type === 'disableForward') p.canAccelerateForward = false;
           if (action.type === 'setVerticalSpeed') { p.sneakersJump = null; p.velocityY = action.value; if (action.value > 0) p.grounded = false; }
           if (action.type === 'rebound' && action.direction) {
             p.laneFrom = p.x; p.laneElapsed = 0; p.lane = clamp(p.lane + action.direction, 0, 2);
@@ -493,8 +543,14 @@ export class RunnerGame {
               { collider: e, bush: action.stumbleType === 'Bush', safe: action.safe,
                 horizontal: action.horizontal, vertical: action.vertical, animationCritical: action.critical });
           }
-          if (action.type === 'hitByTrain') movingHit = true;
+          if (action.type === 'hitByTrain') {
+            movingHit = true;
+            if (s.board.active) this.events.push({ type: 'train-jump', hoverboard: true });
+          }
           if (action.type === 'criticalHit') {
+            // Running.HandleCriticalHit shakes BEFORE Game.Die checks board
+            // protection. A protected impact still has collision feedback.
+            this.events.push({ type: 'critical-hit', obstacle: e.type });
             this.fatalHit(e, movingHit ? 'death_moving_train' : resolved.impact.y === 'upper' ? 'death_upper' : 'death_bounce');
             critical = true;
           }
@@ -612,6 +668,7 @@ export class RunnerGame {
     const inside = entity => Math.abs((entity.x ?? (entity.lane - 1) * this.config.laneSpacing) - x) < entity.width / 2 && Math.abs(entity.distance - distance) < entity.depth / 2;
     let floor = this.entities.some(entity => (entity.type === 'gap' || entity.floor === false) && inside(entity)) ? -Infinity : 0;
     for (const e of this.entities) {
+      if (e.collisionDisabled) continue;
       if (e.type !== 'train' && e.type !== 'ramp' && !e.walkable) continue;
       const entityX = e.x ?? (e.lane - 1) * this.config.laneSpacing;
       if (Math.abs(entityX - x) > e.width / 2) continue;

@@ -19,6 +19,8 @@ test('one local revive preserves run progress, clears nearby source obstacles an
   assert.ok(Math.abs(g.state.player.velocityY-Math.sqrt(60))<1e-8);assert.equal(g.entities.filter(e=>e.type==='train').length,0);assert.equal(g.entities.filter(e=>e.type==='barrier').length,1);
   assert.ok(g.state.powerups.doubleScore>9);assert.equal(g.state.revival.credits,0);
   g.fatalHit({type:'barrier'});assert.equal(g.revive(),false);assert.notEqual(g.state.revival.phase,'offered');
+  g.start();assert.equal(g.state.phase,'gameover','the recovery hop still has to ground after another death');
+  frames(g,.05);
   g.start();assert.equal(g.state.revival.credits,1);assert.equal(g.state.distance,0);assert.equal(g.state.coins,0);
 });
 test('pause freezes SaveMe countdown and revival delay; expired effects are not restored',()=>{
@@ -30,5 +32,7 @@ test('pause freezes SaveMe countdown and revival delay; expired effects are not 
 test('expired offers reject late input and browser gap restoration lands on the cleared floor',()=>{
   const g=empty();g.fatalHit({type:'train'});frames(g,8.1);assert.equal(g.revive(),false);assert.equal(g.state.revival.phase,'finished');
   g.reset();g.entities=[];g.nextSection=1e9;g.start();g.addEntity({type:'gap',lane:1,distance:15,width:2,depth:30});
-  frames(g,1);assert.equal(g.state.phase,'gameover');assert.ok(g.state.player.y<0);assert.equal(g.revive(),true);frames(g,1.1);assert.equal(g.state.phase,'running');assert.equal(g.state.player.y,0);
+  frames(g,1);assert.equal(g.state.phase,'gameover');assert.ok(g.state.player.y<0);assert.equal(g.revive(),false);
+  frames(g,5);assert.equal(g.state.deathGroundingResult,'timeout');
+  assert.equal(g.revive(),true);frames(g,1.1);assert.equal(g.state.phase,'running');assert.equal(g.state.player.y,0);
 });

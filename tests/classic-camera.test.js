@@ -88,7 +88,8 @@ test('modifier adds half delta to target and full extra delta to camera, exits a
   const s = step(camera, { position: [0, 0, 5] });
   near(s.sourceTarget[1], 1.5); near(s.position[1], 1.8);
   near(step(camera, { position: [0, 0, 10] }).position[1], 3.3);
-  assert.throws(() => camera.enterCameraModifier({ startZ: 0, length: 10 }), /source curve evaluator/);
+  camera.enterCameraModifier({ startZ: 0, length: 25.2 });
+  near(step(camera, { position: [0, 0, 12.6] }).position[1], 1.8);
 });
 
 test('ordinary jetpack source camera curve preserves starting pose and uses .9 lateral target with one frame delay', () => {

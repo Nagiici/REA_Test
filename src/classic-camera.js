@@ -92,6 +92,21 @@ export function jetpackCameraBlend(ratio) {
   ], ratio));
 }
 
+/** EnterCameraModifier82659 + APK libunity AddKey/SmoothTangents. Inserting
+ * the middle key smooths BOTH existing first and new middle keys. The final
+ * explicit Keyframe insertion preserves their slopes. Evidence: camera-v5. */
+export function tunnelCameraKeys(length, delta = CLASSIC_CAMERA.tunnelDelta) {
+  if (!(length > 0) || !Number.isFinite(length) || !Number.isFinite(delta)) throw new RangeError('Invalid tunnel curve');
+  const nativeLength = Math.fround(length * 10), middle = Math.fround(nativeLength / 2);
+  const slope = Math.fround(Math.fround(delta * 10) / middle), lastSlope = Math.fround(.001);
+  return [[0, 0, slope, slope], [middle * .1, delta, slope, slope],
+    [nativeLength * .1, 0, lastSlope, lastSlope]];
+}
+
+export function tunnelCameraDelta(distance, length, delta = CLASSIC_CAMERA.tunnelDelta) {
+  return curveValue(tunnelCameraKeys(length, delta), distance);
+}
+
 function angles(position, target) {
   const dx = target[0] - position[0], dz = target[2] - position[2];
   return {
@@ -167,16 +182,9 @@ export class ClassicCamera {
 
   enterCameraModifier({ startZ, length, evaluateCurve }) {
     if (!Number.isFinite(startZ) || !(length > 0)) throw new RangeError('Invalid camera modifier span');
-    // Native keys use distance in native units and y in native units. Scaling
-    // both axes preserves endpoint slopes (-1 and +.001).
-    // Native inserts the middle key through Unity's AddKeySmoothTangents icall;
-    // its resulting tangents have not been recovered. Require a caller-provided
-    // evaluator rather than silently inventing a zero-slope middle key.
-    if (typeof evaluateCurve !== 'function') throw new TypeError('Camera modifier needs a source curve evaluator');
-    this.modifier = { startZ, length, evaluateCurve, knownKeys: [
-      [0, 0, -1, -1], [length / 2, this.config.tunnelDelta, 0, 0],
-      [length, 0, .0010000000474974513, .0010000000474974513],
-    ] };
+    const knownKeys = tunnelCameraKeys(length, this.config.tunnelDelta);
+    this.modifier = { startZ, length, knownKeys,
+      evaluateCurve: evaluateCurve ?? (distance => curveValue(knownKeys, distance)) };
   }
   exitCameraModifier() { this.modifier = null; }
 

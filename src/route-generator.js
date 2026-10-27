@@ -593,6 +593,15 @@ export class SourceRouteGenerator {
         for (const collider of node.colliders ?? []) {
           let fields = collider.fields ?? collider;
           const sourceCollision = this.library.collisionTags?.byColliderRef?.[`${collider.source?.asset}:${collider.source?.pathId}`];
+          const tunnel = node.scripts.find(script => script.class === 'Tunnel');
+          if (tunnel && fields.m_Enabled !== false && fields.m_IsTrigger && collider.type === 'BoxCollider') {
+            const bounds = colliderBounds(fields, matrix, this.unitScale);
+            result.entities.push({ type: 'decoration', ...bounds, visual: null, sourceIsTrigger: true,
+              sourceShape: colliderShape(fields, matrix, bounds, this.unitScale),
+              tunnelModifier: { length: tunnel.decodedFields._tunnelLength * this.unitScale },
+              provenance: { ...provenance, collider: collider.source, tunnel: tunnel.source } });
+            continue;
+          }
           if (fields.m_Enabled !== false && fields.m_IsTrigger && sourceCollision?.tag === 'Subway' && collider.type === 'BoxCollider') {
             const bounds = colliderBounds(fields, matrix, this.unitScale);
             // Character.OnCharacterTriggerEnter81966: bounds.max.y - 3 native.
@@ -613,7 +622,9 @@ export class SourceRouteGenerator {
           const ramp = rootName.includes('train_ramp') && (node.name === 'collider' || node.name === 'colliderCapsule');
           const train = /trains?_/.test(rootName) && !rootName.includes('ramp') || rootName.includes('ramp') && node.name === 'topCollider';
           const type = ramp ? 'ramp' : train ? 'train' : 'obstacle';
-          result.entities.push({ type, ...bounds, sourceTag: sourceCollision?.tag, sourceLayer: sourceCollision?.layer, sourceIsTrigger: !!fields.m_IsTrigger, sourceShape: colliderShape(fields, matrix, bounds, this.unitScale), visual: null, walkable: train, ...this.motionFields(inheritedMotion, bounds.distance), provenance: { ...provenance, collider: collider.source, movingProxyRatio: moving ? ratio : undefined } });
+          result.entities.push({ type, ...bounds, sourceTag: sourceCollision?.tag, sourceLayer: sourceCollision?.layer, sourceIsTrigger: !!fields.m_IsTrigger, sourceShape: colliderShape(fields, matrix, bounds, this.unitScale), visual: null, walkable: train,
+            ...(moving ? { movingTrainProxy: { motionId: `${scope}/${node.id}`, ratio } } : {}),
+            ...this.motionFields(inheritedMotion, bounds.distance), provenance: { ...provenance, collider: collider.source, movingProxyRatio: moving ? ratio : undefined } });
         }
         const coinCurve = node.scripts?.find(script => script.class === 'CoinCurve');
         if (coinCurve) deferredCoins.push({ node, script: coinCurve, matrix, provenance, motion: inheritedMotion });

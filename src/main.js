@@ -10,7 +10,7 @@ import { createChaserPresentation } from './chaser-presentation.js';
 import { PlayerMotion } from './player-motion.js';
 import { ClassicAudio } from './classic-audio.js';
 import { ClassicCamera, classicCameraFov } from './classic-camera.js';
-import { ClassicCameraVolumes } from './classic-camera-volumes.js';
+import { ClassicCameraVolumes, ClassicTunnelModifiers } from './classic-camera-volumes.js';
 import { SourceCameraRig } from './source-camera-rig.js';
 import { createClassicEffects } from './classic-effects.js';
 import { createClassicIntroProps } from './classic-intro-props.js';
@@ -43,6 +43,7 @@ scene.fog = new THREE.Fog(0xb1d9d4, 42, 125);
 const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 190);
 const cameraController = new ClassicCamera({ aspect: innerWidth / innerHeight });
 const cameraVolumes = new ClassicCameraVolumes();
+const tunnelModifiers = new ClassicTunnelModifiers();
 let introRig = null, introStage = null, introProps = null, effects = null, presentationTime = 0, cameraState = null;
 let trainReaction = null;
 const ambient = new THREE.HemisphereLight(0xf2ffef, 0x46605e, 2.2);
@@ -128,7 +129,7 @@ function installCharacter(next) {
   window.__runner.character = character;
 }
 
-window.__runner = { game, renderer, scene, camera, cameraController, cameraVolumes, pack: null, character: null, ready: false, errors: [],
+window.__runner = { game, renderer, scene, camera, cameraController, cameraVolumes, tunnelModifiers, pack: null, character: null, ready: false, errors: [],
   snapshot: () => ({ phase: game.state.phase, distance: game.state.distance, player: { ...game.state.player }, entities: game.entities.length, character: character?.name, animations: character?.animationNames, drawCalls: renderer.info.render.calls }),
 };
 
@@ -165,7 +166,7 @@ function toast(message) {
 let soundEnabled = false;
 
 function start() {
-  if (!loaded || game.state.phase !== 'paused' && game.state.catchRemaining > 0) return;
+  if (!loaded || game.state.phase !== 'paused' && (game.state.catchRemaining > 0 || game.state.deathGrounding)) return;
   if (game.state.phase === 'paused') game.pause();
   else {
     if (game.state.phase === 'gameover') { for (const object of entityObjects.values()) entityRoot.remove(object); entityObjects.clear(); }
@@ -229,7 +230,7 @@ $('character-file').addEventListener('change', async event => {
 
 function updateMenu() {
   const phase = game.state.phase;
-  const running = phase === 'intro' || phase === 'running' || phase === 'reviving' || phase === 'gameover' && game.state.catchRemaining > 0;
+  const running = phase === 'intro' || phase === 'running' || phase === 'reviving' || phase === 'gameover' && (game.state.catchRemaining > 0 || game.state.deathGrounding);
   $('menu').classList.toggle('hidden', running);
   $('menu').inert = running;
   $('menu').setAttribute('aria-hidden', String(running));
@@ -267,11 +268,13 @@ function resize() {
 window.addEventListener('resize', resize); resize();
 const lookTarget = new THREE.Vector3();
 function frame(now) {
-  const dt = Math.min(0.1, Math.max(0, (now - previousTime) / 1000)); previousTime = now;
-  game.advance(dt);
+  const realtimeDelta = Math.max(0, (now - previousTime) / 1000);
+  const dt = Math.min(0.1, realtimeDelta); previousTime = now;
+  game.advance(dt, { realtimeDelta });
   const s = game.state, p = s.player;
   if (s.phase !== 'paused') presentationTime += dt;
-  if (s.phase !== previousPhase || !!s.catchRemaining !== previousCatch) { updateMenu(); previousPhase = s.phase; previousCatch = !!s.catchRemaining; }
+  const waitingForDeath = !!(s.catchRemaining || s.deathGrounding);
+  if (s.phase !== previousPhase || waitingForDeath !== previousCatch) { updateMenu(); previousPhase = s.phase; previousCatch = waitingForDeath; }
   const reviveOffered = s.phase === 'gameover' && s.revival.phase === 'offered';
   $('revive').hidden = !reviveOffered;
   $('revive').disabled = !reviveOffered;
@@ -340,6 +343,7 @@ function frame(now) {
   }
   if (cameraState !== s) { cameraController.reset(); cameraState = s; }
   const cameraRegion = cameraVolumes.update(s, game.entities);
+  tunnelModifiers.update(s, game.entities, cameraController);
   if (introRig && s.phase !== 'paused') {
     if (s.phase === 'ready' || s.phase === 'intro') {
       const clip = pack.cameraAnimations[s.phase === 'ready' ? 'camera_menu_idle' : 'camera_start_pan'];
@@ -350,7 +354,7 @@ function frame(now) {
         cameraController.setPose(introRig.sample(pack.cameraAnimations.camera_start_pan, s.intro.duration, s.intro.cameraFov));
         cameraController.enterRunning();
       } else if (cameraController.mode === 'external') cameraController.enterRunning();
-      if (events.some(e => e.type === 'crash')) cameraController.startShake();
+      if (events.some(e => e.type === 'critical-hit')) cameraController.startShake();
       const shakeSample = cameraController.shake
         ? new THREE.Vector3().randomDirection().multiplyScalar(Math.cbrt(Math.random())).toArray() : [0,0,0];
       cameraController.step(dt, { position: [p.x,p.y,s.distance], lastGroundedY: p.lastGroundedY,
