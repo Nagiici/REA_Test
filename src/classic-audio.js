@@ -1,9 +1,10 @@
 import { AnimationAudioEvents } from './animation-audio-events.js';
+import { assetUrl } from './asset-url.js';
 
 /** Source AudioClip bindings; browser playback/volume is a presentation adapter.
  * Nothing plays before the existing user sound toggle resumes AudioContext. */
 export class ClassicAudio {
-  constructor(data, base = '/assets/recovered/', animationEvents = null) {
+  constructor(data, base = assetUrl('recovered/'), animationEvents = null) {
     this.data = data; this.base = base; this.enabled = false;
     this.buffers = new Map(); this.loading = new Map(); this.loops = new Map();
     this.context = null; this.music = null; this.active = false;

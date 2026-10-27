@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
+import { assetUrl } from './asset-url.js';
 
 const flatten = values => Array.isArray(values?.[0]) ? values.flat(Infinity) : values;
 const textureLoader = new THREE.TextureLoader();
@@ -226,7 +227,7 @@ export function prefabFromUnity(data, meshData, textures, manifest) {
   const wrapper = new THREE.Group(); wrapper.name = data.name; wrapper.add(native); return wrapper;
 }
 
-export async function loadRecoveredPack(base = '/assets/recovered/', { includeChasers = true } = {}) {
+export async function loadRecoveredPack(base = assetUrl('recovered/'), { includeChasers = true } = {}) {
   const manifest = await fetchJson(`${base}manifest.json`);
   const oldChaserMeshes = new Set(Object.values(manifest.chaserActors ?? {}).flatMap(actor => actor.meshes.map(mesh => mesh.key)));
   const meshEntries = Object.entries(manifest.meshes).filter(([name]) => includeChasers || !oldChaserMeshes.has(name));
@@ -399,13 +400,13 @@ export function createCharacterAnimationController(mixer, clips) {
 }
 
 export async function loadYellowCharacter() {
-  const response = await fetch('/assets/character/yellow-runner.glb?rev=14933afe6540');
+  const response = await fetch(assetUrl('character/yellow-runner.glb?rev=14933afe6540'));
   if (!response.ok) throw new Error(`黄色角色读取失败 (${response.status})`);
   return characterFromGLB(await response.arrayBuffer(), { name: '黄色小怪兽', source: 'hi3d-with-recovered-jake-motion' });
 }
 
 export async function loadRedNoseChaser() {
-  const response = await fetch('/assets/character/red-nose-chaser.glb');
+  const response = await fetch(assetUrl('character/red-nose-chaser.glb'));
   if (!response.ok) throw new Error(`追逐角色读取失败 (${response.status})`);
   const actor = await characterFromGLB(await response.arrayBuffer(), { name: '红鼻子追逐者', source: 'hi3d-with-recovered-guard-motion' });
   // Ears are part of the full-body height. A modest fit keeps the torso readable
