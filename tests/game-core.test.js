@@ -58,7 +58,8 @@ test('a coin is counted once, pause freezes progress, and restart resets score',
 
 test('lane commands stay within three tracks and air jumps are rejected', () => {
   const g = emptyGame();
-  for (let i = 0; i < 10; i++) g.action('left');
+  g.action('left');
+  assert.equal(g.action('left'), false); // First boundary impact now causes a source stumble.
   frames(g, 0.3);
   assert.equal(g.state.player.lane, 0);
   assert.equal(g.state.player.x, -g.config.laneSpacing);

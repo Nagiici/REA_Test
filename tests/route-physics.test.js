@@ -33,10 +33,11 @@ test('moving train visuals and collision keep the same travel and swept impact',
   const game = emptyGame();
   const train = game.addEntity({ type: 'train', lane: 1, distance: 15, width: 1.8, height: 3, depth: 3, velocityZ: 22, motionId: 'train-1' });
   const visual = game.addEntity({ type: 'decoration', lane: 1, distance: 15, velocityZ: 22, motionId: 'train-1' });
-  run(game, 0.6);
+  let impactTime = 0;
+  while (game.state.phase === 'running' && impactTime < .6) { game.advance(1 / 120); impactTime += 1 / 120; }
   assert.equal(game.state.phase, 'gameover');
   assert.equal(train.distance, visual.distance);
-  assert.ok(game.state.elapsed < 0.5);
+  assert.ok(impactTime < 0.5); // SaveMe now keeps elapsed time advancing after impact.
 });
 
 test('a source gap removes ground while jumping can cross a short opening', () => {

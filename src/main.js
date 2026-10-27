@@ -6,6 +6,7 @@ import { SourceRouteGenerator } from './route-generator.js';
 import { EnvironmentRouteGenerator } from './environment-layout.js';
 import { POWERUP_NAMES, POWERUP_SECONDS } from './powerups.js';
 import { JETPACK_SECONDS } from './jetpack.js';
+import { createChaserPresentation } from './chaser-presentation.js';
 import './style.css';
 
 const $ = id => document.getElementById(id);
@@ -54,7 +55,7 @@ const ballast = mesh(new THREE.PlaneGeometry(8.6, 240), 0x727e76);
 ballast.rotation.x = -Math.PI / 2; ballast.position.set(0, -0.06, -65); ballast.castShadow = false;
 const entityRoot = new THREE.Group(); scene.add(entityRoot);
 const entityObjects = new Map();
-let pack = null, character = null, loaded = false, previousPhase = 'ready', previousTime = performance.now();
+let pack = null, character = null, chasers = null, loaded = false, previousPhase = 'ready', previousTime = performance.now();
 let best = 0;
 try { best = Number(localStorage.getItem('subway-browser-best') || 0); } catch {}
 if (!Number.isFinite(best)) best = 0;
@@ -117,6 +118,7 @@ Promise.all([loadRecoveredPack(), loadYellowCharacter()]).then(([result, yellowC
   if (!result.routeLibrary || !result.environmentBindings) throw new Error('原版关卡数据尚未就绪');
   const source = new SourceRouteGenerator(result.routeLibrary, { seed: game.config.seed });
   game.setRouteGenerator(new EnvironmentRouteGenerator(source, result.environmentBindings));
+  chasers = createChaserPresentation(result.chasers); scene.add(chasers.object);
   installCharacter(yellowCharacter); loaded = true; window.__runner.ready = true;
   $('start').disabled = false; $('start-label').textContent = '开始奔跑';
 }).catch(error => {
@@ -152,6 +154,7 @@ function start() {
   sound(440, 0.12); canvas.focus();
 }
 $('start').addEventListener('click', start);
+$('revive').addEventListener('click', () => { if (game.revive()) canvas.focus(); });
 $('pause').addEventListener('click', () => { if (loaded) game.pause(); });
 $('sound').addEventListener('click', async () => {
   soundEnabled = !soundEnabled;
@@ -186,7 +189,7 @@ canvas.addEventListener('pointerup', event => {
   game.action(Math.abs(dx) > Math.abs(dy) ? dx < 0 ? 'left' : 'right' : dy < 0 ? 'jump' : 'roll');
 });
 canvas.addEventListener('pointercancel', () => { pointerStart = null; });
-document.addEventListener('visibilitychange', () => { if (document.hidden && game.state.phase === 'running') game.pause(); previousTime = performance.now(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden && game.hasActiveClock) game.pause(); previousTime = performance.now(); });
 
 $('import-character').addEventListener('click', () => $('character-file').click());
 $('character-file').addEventListener('change', async event => {
@@ -203,7 +206,7 @@ $('character-file').addEventListener('change', async event => {
 
 function updateMenu() {
   const phase = game.state.phase;
-  const running = phase === 'running';
+  const running = phase === 'running' || phase === 'reviving';
   $('menu').classList.toggle('hidden', running);
   $('menu').inert = running;
   $('menu').setAttribute('aria-hidden', String(running));
@@ -223,7 +226,7 @@ function updateMenu() {
   } else if (phase === 'paused') {
     $('menu-title').innerHTML = '稍作停留，<br><em>继续前进。</em>';
     $('menu-description').textContent = '按 P 或点击下方按钮继续。';
-    $('result').hidden = true; $('start-label').textContent = '继续奔跑';
+    $('result').hidden = true; $('start-label').textContent = '继续';
   }
 }
 
@@ -239,6 +242,13 @@ function frame(now) {
   game.advance(dt);
   const s = game.state, p = s.player, time = now / 1000;
   if (s.phase !== previousPhase) { updateMenu(); previousPhase = s.phase; }
+  const reviveOffered = s.phase === 'gameover' && s.revival.phase === 'offered';
+  $('revive').hidden = !reviveOffered;
+  $('revive').disabled = !reviveOffered;
+  $('revive').textContent = `试玩复活 · ${Math.ceil(s.revival.offerRemaining)}秒`;
+  $('revive-note').hidden = !reviveOffered;
+  $('chase-status').hidden = !s.stumble?.isStumbling || !['running', 'paused'].includes(s.phase);
+  if (s.stumble?.isStumbling) { $('chase-status').querySelector('span').textContent = `警卫逼近 · ${Math.ceil(s.stumble.timeLeft)}秒`; $('chase-status').querySelector('progress').value = s.stumble.timeLeft; }
   $('distance').textContent = Math.floor(s.distance / game.config.distancePerMeter).toLocaleString();
   $('coins').textContent = s.coins.toLocaleString();
   $('score').textContent = s.score.toLocaleString();
@@ -254,6 +264,9 @@ function frame(now) {
   $('board').textContent = board.active ? `滑板 ${Math.ceil(board.timeLeft)}秒${s.flight ? ' · 暂停' : ''}` : board.cooldownBlocked ? '滑板冷却中' : `滑板 ×${board.inventory} · E`;
   $('speed-line').style.width = `${(s.speed - game.config.initialSpeed) / (game.config.maximumSpeed - game.config.initialSpeed) * 100}%`;
   for (const event of game.drainEvents()) {
+    if (event.type === 'stumble') { sound(180, .12, 'triangle'); toast('小心，警卫追近了'); }
+    if (event.type === 'revive') { boardPose = null; toast('继续奔跑'); sound(500, .2); }
+    if (event.type === 'start') boardPose = null;
     if (event.type === 'board-start') { boardPose = { name: 'board_takeoff', until: s.elapsed + .458336 }; toast('滑板保护已开启'); }
     if (event.type === 'land' && game.hoverboard.visible) boardPose = { name: 'board_landing', until: s.elapsed + .333334 };
     if (event.type === 'board-hit') { boardPose = null; toast('滑板挡住了撞击'); sound(160, .2, 'triangle'); }
@@ -264,17 +277,18 @@ function frame(now) {
   }
   if (loaded) {
     updateEntities(time);
+    chasers.update(s, dt);
   }
   if (character) {
     character.object.position.set(p.x, p.y, 0);
     const lean = Math.max(-0.13, Math.min(0.13, ((p.lane - 1) * game.config.laneSpacing - p.x) * -0.16));
     character.object.rotation.z = THREE.MathUtils.damp(character.object.rotation.z, lean, 12, dt);
     const base = p.rollRemaining > 0 ? 'roll' : !p.grounded ? 'jump' : 'run';
-    const animation = s.flight ? 'flight' : game.hoverboard.visible ? (base === 'run' && boardPose?.until > s.elapsed ? boardPose.name : `board_${base}`) : base;
-    const duration = animation === 'board_takeoff' ? .458336 : animation === 'board_landing' ? .333334 : p.rollRemaining > 0 ? game.config.rollSeconds : base === 'jump' ? 2 * Math.sqrt(2 * (s.powerups.sneakers ? 4 : game.config.jumpHeight) / game.config.gravity) : undefined;
-    character.setAnimation(animation, duration);
+    const animation = s.reaction?.name ?? (s.flight ? 'flight' : game.hoverboard.visible ? (base === 'run' && boardPose?.until > s.elapsed ? boardPose.name : `board_${base}`) : base);
+    const duration = s.reaction ? s.reaction.duration : animation === 'board_takeoff' ? .458336 : animation === 'board_landing' ? .333334 : p.rollRemaining > 0 ? game.config.rollSeconds : base === 'jump' ? 2 * Math.sqrt(2 * (s.powerups.sneakers ? 4 : game.config.jumpHeight) / game.config.gravity) : undefined;
+    character.setAnimation(animation, duration, s.reaction?.token ?? null);
     if (equipment) { equipment.board.visible = game.hoverboard.visible; equipment.jetpack.visible = !!s.flight; }
-    if (s.phase === 'running' || s.phase === 'ready') character.mixer.update(dt * (s.phase === 'ready' ? 0.5 : 1));
+    if (['running','ready','gameover','reviving'].includes(s.phase)) character.mixer.update(dt * (s.phase === 'ready' ? 0.5 : 1));
   }
   const menuView = s.phase === 'ready' && innerWidth > 800;
   const targetX = menuView ? -3.2 : p.x * 0.12;

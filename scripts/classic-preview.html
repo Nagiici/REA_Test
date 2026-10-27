@@ -1,0 +1,15 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>经典模式回归</title>
+<style>body{margin:0;background:#173e3b;overflow:hidden}iframe{border:0;width:100%;height:100dvh}nav{position:fixed;z-index:10;bottom:60px;left:24px;display:flex;gap:8px}button{border:0;border-radius:7px;padding:10px 14px;background:#f1f4d9;color:#173e3b}#status{position:fixed;bottom:110px;left:24px;color:white;font:12px system-ui}</style>
+<iframe src="/" title="经典模式游戏"></iframe><nav><button id="side">侧碰列车</button><button id="edge">越界绊倒</button><button id="again">再次碰撞</button><button id="fatal">正面撞击</button><button id="pause">暂停验证</button></nav><output id="status">加载中</output>
+<script type="module">
+const f=document.querySelector('iframe'),out=document.querySelector('#status');let r,source;
+const timer=setInterval(()=>{if(f.contentWindow.__runner?.ready){r=f.contentWindow.__runner;source=r.game.routeGenerator;clearInterval(timer);report();}},100);
+function report(){if(!r)return;const s=r.game.state;out.textContent=`本地经典回归 · ${s.phase} · 绊倒 ${s.stumble?.timeLeft.toFixed(2)}秒 · 追逐 ${s.stumble?.guardDistanceNative.toFixed(1)} · 复活 ${s.revival.phase} · 金币 ${s.coins} · 错误 ${r.errors.length}`;}
+setInterval(report,100);
+function reset(){const g=r.game;g.routeGenerator=source;g.reset();g.routeGenerator=null;g.entities=g.entities.filter(e=>e.type==='decoration'&&(e.provenance?.environment||/track/i.test(e.visual?.prefabKey??e.visual?.meshKey??'')));g.nextSection=1e9;g.start();return g;}
+document.querySelector('#side').onclick=()=>{const g=reset();g.addEntity({type:'train',lane:2,x:2,distance:6,depth:16});g.action('right');};
+document.querySelector('#edge').onclick=()=>{const g=reset();g.action('left');for(let i=0;i<36;i++)g.advance(1/120);g.action('left');for(let i=0;i<120;i++)g.advance(1/120);};
+document.querySelector('#again').onclick=()=>{const g=r.game;if(g.state.phase==='paused')g.pause();g.action('left');};
+document.querySelector('#fatal').onclick=()=>{const g=reset();g.activatePowerup('magnet');g.state.coins=8;g.addEntity({type:'train',lane:1,distance:8});};
+document.querySelector('#pause').onclick=()=>r.game.pause();
+</script></html>

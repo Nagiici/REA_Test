@@ -26,6 +26,7 @@
         <div class="best-stat"><span>最佳</span><b id="best">0</b> m</div>
       </section>
       <section class="powerup-status" aria-label="生效中的道具">
+        <div id="chase-status" hidden><span>警卫逼近</span><progress max="5" value="5"></progress></div>
         <div id="effect-jetpack" hidden><span>喷气背包</span><progress max="1" value="1"></progress></div>
         <div id="effect-magnet" hidden><span>金币磁铁</span><progress max="1" value="1"></progress></div>
         <div id="effect-sneakers" hidden><span>超级跑鞋</span><progress max="1" value="1"></progress></div>
@@ -33,10 +34,12 @@
       </section>
       <div id="toast" class="toast" aria-live="polite"></div>
       <section class="menu" id="menu" aria-label="游戏菜单">
-        <div class="eyebrow"><span></span> TRACK 01 · 城市轨道</div>
+        <div class="eyebrow"><span></span> 经典模式 · 城市轨道</div>
         <h1 id="menu-title">下一站，<br><em>全速前进。</em></h1>
         <p id="menu-description">躲开列车，跃过路障，沿着金币奔跑。</p>
         <div class="result" id="result" hidden><div><span>本次距离</span><strong id="result-distance">0 <small>m</small></strong></div><div><span>收集金币</span><strong id="result-coins">0</strong></div></div>
+        <button class="revive-button" id="revive" hidden>试玩复活</button>
+        <small id="revive-note" hidden>本地试玩每局可复活一次</small>
         <button class="start-button" id="start"><span id="start-label">开始奔跑</span><b>→</b></button>
         <div class="control-guide"><span><kbd>←</kbd><kbd>→</kbd> 换道</span><span><kbd>↑</kbd> 跳跃</span><span><kbd>↓</kbd> 翻滚</span></div>
         <p class="touch-guide">滑动控制 · 双击画面或按 E 使用滑板 · 每局 3 块</p>

@@ -10,3 +10,5 @@
 
 .board-button{border:1px solid #dfe9c566;background:#173e3bd9;color:#f0f5d9;padding:10px 14px;border-radius:12px;font:600 12px inherit;cursor:pointer}.board-button:disabled{opacity:.62;cursor:default}
 @media(max-width:600px){.board-button{font-size:11px;padding:9px 10px}}
+
+.revive-button{display:block;width:290px;max-width:100%;height:48px;border-radius:8px;background:#dcebd2;color:#173e3b;font-size:15px;font-weight:700;margin-bottom:8px}.revive-button[hidden],#revive-note[hidden]{display:none}#revive-note{display:block;font-size:10px;color:#e1ead7;margin-bottom:18px}#chase-status{border-color:#f4ba6d;color:#ffe3ac}#chase-status progress::-webkit-progress-value{background:#f4ba6d}

@@ -592,7 +592,8 @@ export class SourceRouteGenerator {
         }
         for (const collider of node.colliders ?? []) {
           let fields = collider.fields ?? collider;
-          if (fields.m_Enabled === false || fields.m_IsTrigger) continue;
+          const sourceCollision = this.library.collisionTags?.byColliderRef?.[`${collider.source?.asset}:${collider.source?.pathId}`];
+          if (fields.m_Enabled === false || fields.m_IsTrigger && sourceCollision?.layer !== 'Hit') continue;
           if (!['BoxCollider', 'CapsuleCollider'].includes(collider.type)) { result.diagnostics.push({ kind: 'unsupported-collider', type: collider.type, provenance }); continue; }
           if (moving && collider.type === 'BoxCollider') fields = { ...fields, m_Size: { ...fields.m_Size, z: fields.m_Size.z / (1 + ratio) }, m_Center: { x: 0, y: 15.2, z: (30 * moving.decodedFields.trainCount + 1) / (1 + ratio) } };
           const bounds = collider.type === 'BoxCollider' ? colliderBounds(fields, matrix, this.unitScale) : capsuleBounds(fields, matrix, this.unitScale);
@@ -600,7 +601,7 @@ export class SourceRouteGenerator {
           const ramp = rootName.includes('train_ramp') && (node.name === 'collider' || node.name === 'colliderCapsule');
           const train = /trains?_/.test(rootName) && !rootName.includes('ramp') || rootName.includes('ramp') && node.name === 'topCollider';
           const type = ramp ? 'ramp' : train ? 'train' : 'obstacle';
-          result.entities.push({ type, ...bounds, sourceShape: colliderShape(fields, matrix, bounds, this.unitScale), visual: null, walkable: train, ...this.motionFields(inheritedMotion, bounds.distance), provenance: { ...provenance, collider: collider.source, movingProxyRatio: moving ? ratio : undefined } });
+          result.entities.push({ type, ...bounds, sourceTag: sourceCollision?.tag, sourceLayer: sourceCollision?.layer, sourceIsTrigger: !!fields.m_IsTrigger, sourceShape: colliderShape(fields, matrix, bounds, this.unitScale), visual: null, walkable: train, ...this.motionFields(inheritedMotion, bounds.distance), provenance: { ...provenance, collider: collider.source, movingProxyRatio: moving ? ratio : undefined } });
         }
         const coinCurve = node.scripts?.find(script => script.class === 'CoinCurve');
         if (coinCurve) deferredCoins.push({ node, script: coinCurve, matrix, provenance, motion: inheritedMotion });

@@ -20,6 +20,8 @@ export const DEFAULT_CONFIG = Object.freeze({
   // Fresh browser profile; raw native multiplier clamps player level to 0..30.
   playerLevel: 1,
   powerupTier: 0,
+  // Explicit local demo allowance, unrelated to native account or purchases.
+  localRevives: 1,
   seed: 48709,
 });
 

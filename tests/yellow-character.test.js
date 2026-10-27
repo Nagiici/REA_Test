@@ -32,7 +32,7 @@ test('yellow player contains 26 recovered bone mappings and the original locomot
     assert.deepEqual(animation.extras.source, source.source);
     assert.equal(animation.extras.sourceDuration, source.duration);
   }
-  assert.deepEqual(document.animations.map(a => a.name).sort(), ['board_jump', 'board_landing', 'board_roll', 'board_run', 'board_takeoff', 'flight', 'jump', 'roll', 'run']);
+  assert.deepEqual(document.animations.map(a => a.name).sort(), ['board_jump', 'board_landing', 'board_roll', 'board_run', 'board_takeoff', 'flight', 'jump', 'roll', 'run', 'death_bounce', 'death_upper', 'death_lower', 'death_moving_train', 'stumble_low', 'stumble_mix', 'stumble_left', 'stumble_right', 'stumble_corner_left', 'stumble_no_land', 'caught_fall'].sort());
 });
 
 test('yellow GLB loads as a skinned, grounded player with normalized four-joint weights', async () => {
@@ -137,4 +137,25 @@ test('equipment motions loop independently and the source board attachment follo
     if (name==='board_run') assert.ok(first.distanceTo(attachment.position)>.001);
     character.native.traverse(b=>{if(b.isBone)assert.ok(b.scale.distanceTo(new THREE.Vector3(1,1,1))<1e-6);});
   }
+});
+
+test('classic reactions keep constant bone scale, replay on a new contact and return to locomotion', async () => {
+  const character = await load();
+  let token = 1;
+  for (const name of ['stumble_left', 'stumble_right', 'stumble_low', 'stumble_mix', 'death_bounce', 'death_upper', 'death_lower', 'death_moving_train', 'caught_fall']) {
+    character.setAnimation(name, undefined, token++);
+    for (let frame = 0; frame < 24; frame++) {
+      character.mixer.update(1 / 30);
+      character.native.traverse(bone => { if (bone.isBone) assert.ok(bone.scale.distanceTo(new THREE.Vector3(1,1,1)) < 1e-6); });
+    }
+    assert.ok(Number.isFinite(bounds(character).max.y));
+    const action = character.mixer._actions.find(a => a.getClip().name === name);
+    assert.equal(action.loop, THREE.LoopOnce);
+    character.setAnimation(name, undefined, token++); character.mixer.update(.01);
+    assert.ok(action.time < .02, `${name} did not restart after a new contact`);
+    assert.ok(action.isRunning());
+  }
+  character.setAnimation('run'); character.mixer.update(.3);
+  assert.ok(character.mixer._actions.find(a => a.getClip().name === 'run').isRunning());
+  assert.ok(bounds(character).max.y > 1.4);
 });

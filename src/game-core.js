@@ -1,3 +1,6 @@
+import { ClassicCollisionState } from './classic-collision.js';
+import { ClassicRevive } from './classic-revive.js';
+import { horizontalContact } from './contact-geometry.js';
 import { Jetpack } from './jetpack.js';
 import { makeFlightCoins } from './flight-coins.js';
 import { Hoverboard, HOVERBOARD_BROWSER_ADAPTER } from './hoverboard.js';
@@ -80,25 +83,34 @@ export class RunnerGame {
       speed: this.config.initialSpeed, elapsed: 0,
       player: { lane: 1, x: 0, y: 0, velocityY: 0, rollRemaining: 0,
         grounded: true, floor: 0, laneFrom: 0, laneElapsed: 0, laneDuration: this.config.laneChangeSeconds },
-      collision: null,
+      collision: null, reaction: null, pausedFrom: null,
     };
     this.jetpack = new Jetpack({ tier: clamp(Math.floor(this.config.powerupTier), 0, 6) });
     this.hoverboard = new Hoverboard(HOVERBOARD_BROWSER_ADAPTER);
     this.state.levelSpeed = this.config.initialSpeed;
     this.state.flight = null;
     this.state.board = this.hoverboard.state;
+    this.revival = new ClassicRevive({ localCredits: this.config.localRevives });
+    this.state.revival = this.revival.state;
+    this.reactionSerial = 0;
+    this.lastStumbleContact = null;
+    this.contacts = new Set();
+    this.collisionState = new ClassicCollisionState();
+    this.state.stumble = this.collisionState.snapshot();
     this.ensureCourse();
   }
 
   start() {
+    if (this.state.phase === 'reviving') return;
     if (this.state.phase === 'gameover') this.reset();
     this.state.phase = 'running';
     this.events.push({ type: 'start' });
   }
 
   pause() {
-    if (this.state.phase === 'running') this.state.phase = 'paused';
-    else if (this.state.phase === 'paused') this.state.phase = 'running';
+    const s = this.state;
+    if (s.phase === 'running' || s.phase === 'reviving' || s.phase === 'gameover' && this.revival.state.phase === 'offered') { s.pausedFrom = s.phase; s.phase = 'paused'; }
+    else if (s.phase === 'paused') { s.phase = s.pausedFrom ?? 'running'; s.pausedFrom = null; }
     this.accumulator = 0;
   }
 
@@ -113,7 +125,11 @@ export class RunnerGame {
     if (this.state.flight && !['left', 'right'].includes(action)) return false;
     if (action === 'left' || action === 'right') {
       const next = clamp(p.lane + (action === 'left' ? -1 : 1), 0, 2);
-      if (next === p.lane) return false;
+      if (next === p.lane) {
+        if (!this.state.flight) this.stumble(action === 'left' ? 'stumble_left' : 'stumble_right', action === 'left' ? .416667 : .833334);
+        return false;
+      }
+      p.laneOrigin = p.lane;
       p.laneFrom = p.x;
       p.laneElapsed = 0;
       p.laneDuration = Math.abs((next - 1) - p.x / this.config.laneSpacing) * (this.state.flight ? 6 / this.state.speed : this.config.laneChangeSeconds);
@@ -142,25 +158,100 @@ export class RunnerGame {
     return false;
   }
 
+  get hasActiveClock() {
+    return this.state.phase === 'running' || this.state.phase === 'reviving'
+      || this.state.phase === 'gameover' && this.revival.state.phase === 'offered';
+  }
+
   advance(seconds) {
-    if (this.state.phase !== 'running') return;
-    // Ignore tab suspension gaps without making the player teleport into hazards.
+    if (!this.hasActiveClock) return;
     this.accumulator += clamp(seconds, 0, 0.1);
     const dt = this.config.fixedStep;
-    while (this.accumulator + 1e-10 >= dt && this.state.phase === 'running') {
-      this.step(dt);
+    while (this.accumulator + 1e-10 >= dt && this.hasActiveClock) {
+      if (this.state.phase === 'running') this.step(dt);
+      else this.stepRevival(dt);
       this.accumulator -= dt;
     }
   }
 
-  step(dt) {
-    const s = this.state, p = s.player, c = this.config;
-    const previousDistance = s.distance;
+  updatePowerupTimes(dt) {
+    const s = this.state;
     for (const type of Object.keys(s.powerups)) {
       if (type === 'jetpack' || type === 'sneakers' && s.flight) continue;
       s.powerups[type] = Math.max(0, s.powerups[type] - dt);
       if (s.powerups[type] <= 1e-8) { delete s.powerups[type]; this.events.push({ type: 'powerup-end', powerup: type }); }
     }
+  }
+
+  revive() {
+    if (this.state.phase !== 'gameover' || !this.revival.accept()) return false;
+    this.state.phase = 'reviving';
+    this.events.push({ type: 'revive-start' });
+    return true;
+  }
+
+  stepRevival(dt) {
+    const s = this.state, p = s.player, c = this.config;
+    // Native LogicUpdate advances the level clock and effect countdowns during
+    // SaveMe; it freezes movement, score and the modifier coroutine iterator.
+    s.elapsed += dt;
+    s.levelSpeed = Math.min(c.maximumSpeed, s.levelSpeed + c.acceleration * dt);
+    s.speed = s.levelSpeed;
+    this.updatePowerupTimes(dt);
+    for (const event of this.revival.step(dt)) {
+      if (event.type === 'resume') {
+        this.clearObstacles(s.distance - c.playerRadius, s.distance + event.clearDistanceNative * .1 * s.speed / 11);
+        this.hoverboard.reset({ inventory: this.hoverboard.state.inventory });
+        s.board = this.hoverboard.state;
+        this.collisionState.stopStumble();
+        s.stumble = this.collisionState.snapshot();
+        this.contacts.clear(); this.lastStumbleContact = null;
+        // The native Revive launch is retained. Moving a browser gap fall to
+        // the cleared floor is an explicit coordinate/geometry adapter.
+        p.y = Math.max(0, p.y); p.velocityY = Math.sqrt(2 * c.gravity * event.jumpHeightNative * .1);
+        p.grounded = false; p.rollRemaining = 0; p.sneakersJump = null;
+        p.laneFrom = p.x; p.laneElapsed = 0;
+        p.laneDuration = Math.abs((p.lane - 1) - p.x / c.laneSpacing) * c.laneChangeSeconds;
+        s.collision = null; s.reaction = null; s.phase = 'running';
+        this.events.push({ type: 'revive' });
+      } else this.events.push(event);
+    }
+  }
+
+  setReaction(name, duration) {
+    this.state.reaction = { name, remaining: duration, duration, token: ++this.reactionSerial };
+  }
+
+  stumble(name = 'stumble_mix', duration = .833334, options = {}) {
+    const outcome = this.collisionState.stumble({ ...options, flying: !!this.state.flight });
+    this.state.stumble = this.collisionState.snapshot();
+    if (outcome.stumbled) {
+      if (!options.bush) this.lastStumbleContact = { entity: options.collider ?? null, at: this.state.elapsed };
+      this.setReaction(name, duration); this.events.push({ type: 'stumble', reason: outcome.reason }); }
+    if (outcome.fatal) this.fatalHit({ type: 'critical-hit' });
+    return outcome;
+  }
+
+  fatalHit(entity, animation = 'death_bounce') {
+    if (this.protectWithBoard()) return false;
+    const s = this.state;
+    s.phase = 'gameover';
+    s.collision = { id: entity.id, type: entity.type, distance: s.distance };
+    this.setReaction(animation, undefined);
+    this.revival.offer();
+    this.events.push({ type: 'crash', obstacle: entity.type });
+    return true;
+  }
+
+  step(dt) {
+    const s = this.state, p = s.player, c = this.config;
+    const previousDistance = s.distance, previousX = p.x;
+    const stumble = this.collisionState.step(dt, { flying: !!s.flight });
+    s.stumble = this.collisionState.snapshot();
+    if (s.reaction?.remaining != null) { s.reaction.remaining -= dt; if (s.reaction.remaining <= 0) s.reaction = null; }
+    if (stumble.fatal && this.fatalHit({ type: 'repeated-stumble' }, 'caught_fall')) return;
+    const nextContacts = new Set();
+    this.updatePowerupTimes(dt);
     s.elapsed += dt;
     s.levelSpeed = Math.min(c.maximumSpeed, s.levelSpeed + c.acceleration * dt);
     if (s.flight) {
@@ -177,6 +268,8 @@ export class RunnerGame {
         this.clearObstacles(s.distance - 2, end);
       }
       if (event.type === 'revive') {
+        this.collisionState.stopStumble(); s.stumble = this.collisionState.snapshot();
+        s.reaction = null; this.contacts.clear(); this.lastStumbleContact = null;
         // Browser gap recovery: removed gap geometry supplies a safe floor.
         p.y = Math.max(0, p.y); p.velocityY = Math.sqrt(2 * c.gravity * event.jumpHeightNative * 0.1);
         p.grounded = false; p.rollRemaining = 0; p.sneakersJump = null;
@@ -264,21 +357,37 @@ export class RunnerGame {
       const top = sourceBounds.top;
       const playerTop = p.y + (p.rollRemaining > 0 ? c.rollingHeight : c.standingHeight);
       if (playerTop > bottom + 0.04 && p.y < top - 0.08) {
+        nextContacts.add(e.id);
+        if (this.contacts.has(e.id)) continue;
         // A radius-expanded train front overlaps the last part of an adjoining
         // ramp. That shared walkable seam is not a vertical wall. Only waive
         // the front contact while grounded on the matching supporting ramp;
         // the same train remains solid for a runner approaching from the ground.
         if (e.type === 'train' && this.isCrossingRampSeam(e)) continue;
-        if (this.protectWithBoard()) break;
-        s.phase = 'gameover';
-        s.collision = { id: e.id, type: e.type, distance: s.distance };
-        this.events.push({ type: 'crash', obstacle: e.type });
+        if (!e.sourceIsTrigger && this.lastStumbleContact?.entity && s.elapsed - this.lastStumbleContact.at <= 1 && e.id !== this.lastStumbleContact.entity.id) {
+          const prior = this.lastStumbleContact.entity; this.lastStumbleContact = null;
+          if (this.fatalHit(prior)) break;
+        }
+        // Native Hit-layer triggers bypass the solid impact-direction classifier.
+        if (e.sourceIsTrigger && e.sourceLayer === 'Hit') {
+          this.stumble(e.sourceTag === 'Stumble' ? 'stumble_low' : 'stumble_mix', e.sourceTag === 'Stumble' ? .625 : .833334, { collider: e, bush: e.sourceTag === 'Stumble' });
+          continue;
+        }
+        const contact = horizontalContact({ previousX, x: p.x, previousDistance, distance: s.distance, radius: c.playerRadius }, { ...e, x });
+        if (contact?.side) {
+          const origin = p.laneOrigin ?? Math.round(previousX / c.laneSpacing) + 1;
+          p.laneFrom = p.x; p.laneElapsed = 0; p.lane = clamp(origin, 0, 2);
+          p.laneDuration = Math.abs((p.lane - 1) - p.x / c.laneSpacing) * .5;
+          this.stumble(contact.direction < 0 ? 'stumble_left' : 'stumble_right', contact.direction < 0 ? .416667 : .833334, { collider: e });
+          break;
+        }
+        this.fatalHit(e, e.movingTrain || e.velocityZ ? 'death_moving_train' : bottom > p.y + .7 ? 'death_upper' : top < p.y + c.standingHeight * .66 ? 'death_lower' : 'death_bounce');
         break;
       }
     }
-    if (p.y < -6 && s.phase === 'running' && !s.flight && !this.protectWithBoard()) {
-      s.phase = 'gameover'; s.collision = { type: 'gap', distance: s.distance };
-      this.events.push({ type: 'crash', obstacle: 'gap' });
+    this.contacts = nextContacts;
+    if (p.y < -6 && s.phase === 'running' && !s.flight) {
+      this.fatalHit({ type: 'gap' }, 'caught_fall');
     }
     s.score = s.baseScore + s.coins * this.rawMultiplier * 2;
     this.entities = this.entities.filter(e => e.distance + (e.depth ?? 0) / 2 > s.distance - c.removeBehind);

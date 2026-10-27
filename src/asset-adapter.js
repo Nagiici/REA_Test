@@ -156,6 +156,52 @@ function sourceMaterials(data, records, textures) {
   });
 }
 
+// Unlike Jake, these exported meshes are in the Animation-root bind frame.
+// Parenting them to the original renderer's bone node would apply its TRS twice.
+export function chaserFromUnity(name, info, rig, meshData, animations, textures = {}) {
+  const native = new THREE.Group(); native.name = `Recovered_${name}`;
+  const byId = new Map(), byPath = new Map([['', native]]);
+  for (const source of rig.nodes) {
+    const node = new THREE.Bone(); node.name = source.name;
+    node.position.fromArray(source.position); node.quaternion.fromArray(source.quaternion); node.scale.fromArray(source.scale);
+    byId.set(source.id, node); byPath.set(source.path, node);
+  }
+  for (const source of rig.nodes) (byId.get(source.parentId) ?? native).add(byId.get(source.id));
+  native.updateMatrixWorld(true);
+  for (const binding of info.meshes) {
+    if (binding.browserMeshParent !== 'animationRoot') throw new Error(`追逐角色绑定坐标未验证：${name}`);
+    const data = meshData[binding.key], bones = binding.bones.map(id => byId.get(id));
+    if (bones.some(b => !b)) throw new Error(`追逐角色骨骼缺失：${name}`);
+    const mesh = new THREE.SkinnedMesh(geometryFromUnity(data), sourceMaterials(data, binding.materials, textures));
+    mesh.name = binding.key; native.add(mesh);
+    new THREE.Matrix4().set(...binding.browserMeshLocalMatrix).decompose(mesh.position, mesh.quaternion, mesh.scale);
+    native.updateMatrixWorld(true);
+    mesh.bind(new THREE.Skeleton(bones, data.inverseBindMatrices.map(m => new THREE.Matrix4().set(...m))), new THREE.Matrix4().set(...binding.bindMatrix));
+    mesh.castShadow = true; mesh.frustumCulled = false;
+  }
+  const clips = Object.fromEntries(Object.entries(animations).map(([key, data]) => [key, clipFromUnity(data, byPath)]));
+  const mixer = new THREE.AnimationMixer(native);
+  const actions = Object.fromEntries(Object.entries(clips).map(([key, clip]) => [key, mixer.clipAction(clip)]));
+  let current = null, currentToken = null;
+  function setAnimation(key, duration, token = null) {
+    if (!actions[key]) key = 'run';
+    if (key === current && token === currentToken) return;
+    const action = actions[key]; action.reset();
+    action.setLoop(key === 'run' ? THREE.LoopRepeat : THREE.LoopOnce, key === 'run' ? Infinity : 1);
+    action.clampWhenFinished = key !== 'run'; action.setDuration(duration ?? clips[key].duration); action.play();
+    if (current && current !== key) actions[current].crossFadeTo(action, .08, false);
+    current = key; currentToken = token;
+  }
+  const root = info.rootTransform;
+  native.position.fromArray(root.position); native.quaternion.fromArray(root.quaternion); native.scale.fromArray(root.scale);
+  const conversion = new THREE.Group(); conversion.add(native);
+  // Browser presentation fit beside the 1.95m replacement player, not a native gameplay constant.
+  conversion.scale.set(.15, .15, -.15);
+  const wrapper = new THREE.Group(); wrapper.add(conversion); setAnimation('run');
+  return { object: wrapper, native, mixer, setAnimation, source: 'apk', animationNames: Object.keys(clips),
+    animationDiagnostics: Object.fromEntries(Object.entries(clips).map(([key, clip]) => [key, clip.userData])) };
+}
+
 function prefabFromUnity(data, meshData, textures, manifest) {
   const native = new THREE.Group(), byId = new Map();
   for (const source of data.nodes) {
@@ -195,6 +241,7 @@ export async function loadRecoveredPack(base = '/assets/recovered/') {
   const prefabData = Object.fromEntries(await Promise.all(Object.entries(manifest.prefabs ?? {}).map(async ([name, info]) => [name, await fetchJson(base + info.file)])));
   const routeLibraryPath = typeof manifest.routeLibrary === 'string' ? manifest.routeLibrary : manifest.routeLibrary?.file;
   const routeLibrary = routeLibraryPath ? await fetchJson(base + routeLibraryPath) : null;
+  if (routeLibrary && manifest.classicCollisionIndex) routeLibrary.collisionTags = await fetchJson(base + manifest.classicCollisionIndex);
   if (routeLibrary?.modelBindingsFile) {
     routeLibrary.modelBindings = await fetchJson(base + routeLibrary.modelBindingsFile);
     for (const binding of Object.values(routeLibrary.modelBindings.byDefinitionRef ?? {})) {
@@ -204,6 +251,10 @@ export async function loadRecoveredPack(base = '/assets/recovered/') {
   const environmentPath = manifest.environmentBindings ?? routeLibrary?.environmentBindingsFile;
   const environmentBindings = environmentPath ? await fetchJson(base + (typeof environmentPath === 'string' ? environmentPath : environmentPath.file)) : null;
   const character = characterFromUnity({ jake_Mesh: meshData.jake_Mesh, jake_head: meshData.jake_head }, rig, textures.jake_tex_low, animations);
+  const chasers = Object.fromEntries(await Promise.all(Object.entries(manifest.chaserActors ?? {}).map(async ([name, info]) => {
+    const [actorRig, actorClips] = await Promise.all([fetchJson(base + info.rig.file), Promise.all(Object.entries(info.animations).map(async ([key, value]) => [key, await fetchJson(base + value.file)]))]);
+    return [name, chaserFromUnity(name, info, actorRig, meshData, Object.fromEntries(actorClips), textures)];
+  })));
   const props = {};
   for (const [name, data] of Object.entries(meshData)) {
     if (name.startsWith('jake')) continue;
@@ -230,7 +281,7 @@ export async function loadRecoveredPack(base = '/assets/recovered/') {
     props[name] = wrapper;
   }
   const prefabs = Object.fromEntries(Object.entries(prefabData).map(([name, data]) => [name, prefabFromUnity(data, meshData, textures, manifest)]));
-  return { manifest, character, props, prefabs, prefabData, textures, meshData, routeLibrary, environmentBindings,
+  return { manifest, character, chasers, props, prefabs, prefabData, textures, meshData, routeLibrary, environmentBindings,
     cloneProp: name => props[name]?.clone(true), clonePrefab: name => prefabs[name]?.clone(true) };
 }
 
@@ -251,11 +302,11 @@ export async function characterFromGLB(buffer, { name = '自定义角色', sourc
   const mixer = new THREE.AnimationMixer(native);
   const actions = new Map();
   for (const clip of gltf.animations) actions.set(clip.name, mixer.clipAction(clip));
-  let playing = null;
-  function setAnimation(name, duration) {
+  let playing = null, playingToken = null;
+  function setAnimation(name, duration, token = null) {
     const fallback = name.startsWith('board_') ? name.slice(6) : name === 'flight' ? 'jump' : name;
     const match = actions.has(name) ? name : actions.has(fallback) ? fallback : [...actions.keys()].find(key => key.toLowerCase().includes(fallback)) ?? [...actions.keys()][0];
-    if (!match || playing === match) return;
+    if (!match || playing === match && playingToken === token) return;
     const action = actions.get(match); action.reset();
     // The simulation owns rollRemaining and may extend it on repeated input.
     // Keep rolling until that state ends; a clamped one-shot would freeze.
@@ -266,8 +317,8 @@ export async function characterFromGLB(buffer, { name = '自定义角色', sourc
     }
     else { action.setLoop(THREE.LoopOnce, 1); action.clampWhenFinished = true; action.setDuration(duration || action.getClip().duration); }
     action.play();
-    if (playing) actions.get(playing).crossFadeTo(action, 0.08, false);
-    playing = match;
+    if (playing && playing !== match) actions.get(playing).crossFadeTo(action, 0.08, false);
+    playing = match; playingToken = token;
   }
   setAnimation('run');
   return { object: wrapper, native, mixer, setAnimation, source, name, animationNames: gltf.animations.map(c => c.name) };

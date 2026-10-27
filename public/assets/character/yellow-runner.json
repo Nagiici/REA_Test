@@ -2,8 +2,8 @@
   "input": "outputs/yellow-character-47e54de8/yellow-character-full-body.glb",
   "output": "web/public/assets/character/yellow-runner.glb",
   "sourceBytes": 58272900,
-  "bytes": 6450496,
-  "sha256": "fd5c4d37aab85879990c457af12304d6d3540c7ee36b9a9a6a6e8d6f17b15a70",
+  "bytes": 6988784,
+  "sha256": "7ef0fb7d93bc207991b1dc8c8ddabf5940f8a431b284917526f4335301490d4c",
   "bones": [
     {
       "name": "Root_jnt",
@@ -389,12 +389,177 @@
         -0.2840024023096275,
         0.09459644082214946
       ]
+    },
+    {
+      "name": "death_bounce",
+      "source": {
+        "asset": "1cd628b8f10d83f4bbeb5df411698bbc",
+        "pathId": "1"
+      },
+      "duration": 0.6666679382324219,
+      "frames": 82,
+      "mappedBones": 26,
+      "maximumHeight": 1.5196566056219716,
+      "groundCorrection": [
+        -0.03636466222881274,
+        0.2981689055737946
+      ]
+    },
+    {
+      "name": "death_upper",
+      "source": {
+        "asset": "e4b92f6a0ec194245842d09e40b10939",
+        "pathId": "16"
+      },
+      "duration": 0.33333396911621094,
+      "frames": 42,
+      "mappedBones": 26,
+      "maximumHeight": 1.5129941928058503,
+      "groundCorrection": [
+        -0.015593318695028335,
+        0.34343253943178276
+      ]
+    },
+    {
+      "name": "death_lower",
+      "source": {
+        "asset": "e4b92f6a0ec194245842d09e40b10939",
+        "pathId": "17"
+      },
+      "duration": 0.5,
+      "frames": 61,
+      "mappedBones": 26,
+      "maximumHeight": 1.4187703572900543,
+      "groundCorrection": [
+        -0.12624172426945834,
+        0.30011786530387985
+      ]
+    },
+    {
+      "name": "death_moving_train",
+      "source": {
+        "asset": "e4b92f6a0ec194245842d09e40b10939",
+        "pathId": "18"
+      },
+      "duration": 1.458333969116211,
+      "frames": 177,
+      "mappedBones": 26,
+      "maximumHeight": 1.5129916674192228,
+      "groundCorrection": [
+        -1.9971200474432353,
+        -0.015593243512441735
+      ]
+    },
+    {
+      "name": "stumble_low",
+      "source": {
+        "asset": "e4b92f6a0ec194245842d09e40b10939",
+        "pathId": "44"
+      },
+      "duration": 0.625,
+      "frames": 76,
+      "mappedBones": 26,
+      "maximumHeight": 1.1762456925129094,
+      "groundCorrection": [
+        -0.022779373992606877,
+        0.1999218106377325
+      ]
+    },
+    {
+      "name": "stumble_mix",
+      "source": {
+        "asset": "29b1692506a64f946b0079ce894c9025",
+        "pathId": "1"
+      },
+      "duration": 0.8333339691162109,
+      "frames": 102,
+      "mappedBones": 26,
+      "maximumHeight": 1.4012446713332718,
+      "groundCorrection": [
+        0.06268633631518639,
+        0.1102468167809858
+      ]
+    },
+    {
+      "name": "stumble_left",
+      "source": {
+        "asset": "e4b92f6a0ec194245842d09e40b10939",
+        "pathId": "15"
+      },
+      "duration": 0.41666698455810547,
+      "frames": 52,
+      "mappedBones": 26,
+      "maximumHeight": 1.397931337069211,
+      "groundCorrection": [
+        -0.3452820268912329,
+        0.09035556915836662
+      ]
+    },
+    {
+      "name": "stumble_right",
+      "source": {
+        "asset": "e4b92f6a0ec194245842d09e40b10939",
+        "pathId": "14"
+      },
+      "duration": 0.8333339691162109,
+      "frames": 102,
+      "mappedBones": 26,
+      "maximumHeight": 1.3979303934832294,
+      "groundCorrection": [
+        0.08168748909038315,
+        0.08168748909038337
+      ]
+    },
+    {
+      "name": "stumble_corner_left",
+      "source": {
+        "asset": "e4b92f6a0ec194245842d09e40b10939",
+        "pathId": "13"
+      },
+      "duration": 0.7916669845581055,
+      "frames": 97,
+      "mappedBones": 26,
+      "maximumHeight": 1.3979303934832294,
+      "groundCorrection": [
+        0.08075004704388788,
+        0.08168748909038348
+      ]
+    },
+    {
+      "name": "stumble_no_land",
+      "source": {
+        "asset": "531529061eef54f49aeeb62000f5bfe0",
+        "pathId": "1"
+      },
+      "duration": 0.9000000357627869,
+      "frames": 110,
+      "mappedBones": 26,
+      "maximumHeight": 1.412020173397934,
+      "groundCorrection": [
+        -0.4950273259844846,
+        0.13871141261036146
+      ]
+    },
+    {
+      "name": "caught_fall",
+      "source": {
+        "asset": "b19f985c10116954596e50f67ac696a3",
+        "pathId": "1"
+      },
+      "duration": 0.7999997138977051,
+      "frames": 97,
+      "mappedBones": 26,
+      "maximumHeight": 1.4168129050243494,
+      "groundCorrection": [
+        0.0974373556655036,
+        0.17682007006292855
+      ]
     }
   ],
   "provenance": {
     "sourceTask": "47e54de8a9174127b6f711713b71cf1a",
     "sourceSha256": "182b1df7e2cb1b4fbe46754e33713c64038cf11125f3bd75879d1526c91f3141",
-    "animationSource": "User-provided Subway Surfers 7.07.0 APK, recovered Jake rig and run/jump/roll/jetpack/hoverboard curves",
+    "animationSource": "User-provided Subway Surfers 7.07.0 APK, recovered Jake rig and run/jump/roll/jetpack/hoverboard/classic collision curves",
     "adaptations": [
       "26-bone skeleton proportions fitted to full-body yellow model",
       "New skin weights for yellow mesh",
