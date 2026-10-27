@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import * as THREE from 'three';
-import { characterFromGLB } from '../src/asset-adapter.js';
+import { characterFromGLB, PLAYER_MODEL_HEIGHT } from '../src/asset-adapter.js';
 import { RunnerGame } from '../src/game-core.js';
 
 const bytes = fs.readFileSync(new URL('../public/assets/character/yellow-runner.glb', import.meta.url));
@@ -57,7 +57,7 @@ test('yellow GLB loads as a skinned, grounded player with normalized four-joint 
   });
   assert.equal(meshes, 3); assert.ok(vertices > 30000);
   const box = bounds(character);
-  assert.ok(Math.abs(box.min.y) < .005); assert.ok(Math.abs(box.max.y - 1.95) < .005);
+  assert.ok(Math.abs(box.min.y) < .005); assert.ok(Math.abs(box.max.y - PLAYER_MODEL_HEIGHT) < .005);
 });
 
 test('repaired abdomen cannot be dragged by arm bones, and inner hand vertices keep their own limb weights',()=>{
@@ -101,7 +101,7 @@ test('recovered run motion moves the yellow legs and keeps the skinned mesh abov
   const character = await load(), leg = character.native.getObjectByName('L_Knee_jnt');
   character.mixer.update(.02); bounds(character); const first = leg.getWorldPosition(new THREE.Vector3());
   let minimum = Infinity;
-  for (let i=0;i<24;i++) { character.mixer.update(.4166667/24); const box=bounds(character); minimum=Math.min(minimum,box.min.y); assert.ok(Number.isFinite(box.max.y)); assert.ok(box.max.y < 2.4); }
+  for (let i=0;i<24;i++) { character.mixer.update(.4166667/24); const box=bounds(character); minimum=Math.min(minimum,box.min.y); assert.ok(Number.isFinite(box.max.y)); assert.ok(box.max.y < 1.22); }
   character.mixer.update(.15); bounds(character);
   assert.ok(first.distanceTo(leg.getWorldPosition(new THREE.Vector3())) > .03);
   assert.ok(minimum > -.04, `Lowest run surface: ${minimum}`);
@@ -120,7 +120,7 @@ test('jump remains a one-shot while roll keeps its size and can return to run', 
   assert.ok(character.mixer._actions.find(a=>a.getClip().name==='roll').isRunning());
   character.setAnimation('run'); character.mixer.update(.2);
   assert.ok(character.mixer._actions.find(a=>a.getClip().name==='run').isRunning());
-  assert.ok(bounds(character).max.y > 1.4);
+  assert.ok(bounds(character).max.y > .7);
 });
 
 test('roll never scales the skeleton and consecutive cycles meet at the same pose', async () => {
@@ -202,5 +202,5 @@ test('classic reactions keep constant bone scale, replay on a new contact and re
   }
   character.setAnimation('run'); character.mixer.update(.3);
   assert.ok(character.mixer._actions.find(a => a.getClip().name === 'run').isRunning());
-  assert.ok(bounds(character).max.y > 1.4);
+  assert.ok(bounds(character).max.y > .7);
 });

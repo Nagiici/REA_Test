@@ -1,5 +1,5 @@
-/** Bounded vertical CharacterController adapter. Source dimensions and probe
- * order are recovered; vertical convex sweeps are our solver, not PhysX.
+/** Bounded CharacterController adapter. Source dimensions and probe
+ * order are recovered; vertical and lateral sweeps are our solver, not PhysX.
  * Trigger contacts remain in classic-contact.js with their distinct .3 radius. */
 import { capsuleEntitySeparation } from './classic-contact.js';
 export const CLASSIC_CONTROLLER = Object.freeze({ radius:.2, standingHeight:.9,
@@ -15,6 +15,42 @@ export function controllerCapsule(position, rolling=false) {
   const height=rolling?CLASSIC_CONTROLLER.rollingHeight:CLASSIC_CONTROLLER.standingHeight;
   return {a:[position[0],position[1]+radius,position[2]],
     b:[position[0],position[1]+height-radius,position[2]],radius};
+}
+
+/** Resolve a lane move against solid sides at the accepted vertical pose.
+ * A roof landing is resolved first; a foot below that roof must instead stay
+ * outside the carriage. Rounded capsule distance preserves side/corner space.
+ * This is bounded lateral blocking, not a full PhysX step/slope solver. */
+export function moveControllerLateral(position, dx, rolling, entities) {
+  if (Math.abs(dx) < EPS) return { x: position[0], blocked: false };
+  let fraction = 1;
+  for (const e of entities) {
+    if (!controllerSolid(e) || e.type === 'ramp') continue;
+    const height = rolling ? CLASSIC_CONTROLLER.rollingHeight : CLASSIC_CONTROLLER.standingHeight;
+    if (position[1] >= e.height - EPS || position[1] + height <= (e.bottom ?? 0) + EPS
+      || Math.abs(position[2] - e.distance) > e.depth / 2 + radius
+      || Math.max(position[0], position[0] + dx) + radius < e.x - e.width / 2
+      || Math.min(position[0], position[0] + dx) - radius > e.x + e.width / 2) continue;
+    const separation = t => capsuleEntitySeparation(controllerCapsule(
+      [position[0] + dx * t, position[1], position[2]], rolling), e);
+    const start = separation(0);
+    if (start < -EPS) {
+      // Existing overlap can escape. Never move farther into the same solid.
+      if (separation(Math.min(1, EPS / Math.abs(dx) * 10)) < start - EPS / 10) fraction = 0;
+      continue;
+    }
+    let lo = 0, hi = 1;
+    for (let i = 0; i < 32; i++) {
+      const a = (2 * lo + hi) / 3, b = (lo + 2 * hi) / 3;
+      if (separation(a) < separation(b)) hi = b; else lo = a;
+    }
+    const minimum = (lo + hi) / 2;
+    if (separation(minimum) >= -EPS) continue;
+    lo = 0; hi = minimum;
+    for (let i = 0; i < 32; i++) { const t = (lo + hi) / 2; if (separation(t) < 0) hi = t; else lo = t; }
+    fraction = Math.min(fraction, lo);
+  }
+  return { x: position[0] + dx * fraction, blocked: fraction < 1 };
 }
 
 /** Vertical forbidden interval for the foot sphere. Convex distance in Y has

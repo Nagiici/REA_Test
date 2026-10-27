@@ -2,8 +2,9 @@ import { ClassicCollisionState } from './classic-collision.js';
 import { ClassicRevive } from './classic-revive.js';
 import { resolveClassicImpact } from './classic-impact.js';
 import { runnerEntityContact } from './classic-contact.js';
+import { trainBodyAt } from './classic-train-body.js';
 import { classicVerticalMotion } from './classic-vertical.js';
-import { CLASSIC_CONTROLLER, controllerInterval, expandController } from './classic-controller.js';
+import { CLASSIC_CONTROLLER, controllerInterval, expandController, moveControllerLateral } from './classic-controller.js';
 import { Jetpack } from './jetpack.js';
 import { makeFlightCoins } from './flight-coins.js';
 import { makeHeadstartRewards } from './headstart-rewards.js';
@@ -245,7 +246,7 @@ export class RunnerGame {
 
   expandColliders(reason) {
     const s = this.state, p = s.player;
-    const solids = this.entities.map(e => ({ ...e, x: e.x ?? (e.lane - 1) * this.config.laneSpacing }));
+    const solids = this.entities.map(e => ({ ...trainBodyAt(e, s.distance), x: e.x ?? (e.lane - 1) * this.config.laneSpacing }));
     const result = expandController([p.x, p.y, s.distance], p.colliderSqueezed, solids,
       { enabled: () => p.controllerEnabled, ground: this.groundPlaneAt(s.distance, p.x),
         removeSqueeze: () => { this.squeezeOwners.delete('roll'); return this.squeezeOwners.size > 0; } });
@@ -517,7 +518,7 @@ export class RunnerGame {
       p.y += motion.dy; p.velocityY = motion.velocityY; p.sneakersJump = motion.sneakersJump;
       this.ceiling = motion.ceiling;
     }
-    const floor = this.surfaceHeight(s.distance, p.x, previousY);
+    let floor = this.surfaceHeight(s.distance, p.x, previousY);
     if (!s.flight && p.y <= floor && p.velocityY <= 0) {
       p.y = floor;
       p.grounded = true;
@@ -527,6 +528,19 @@ export class RunnerGame {
       // immediately, before the next ApplyGravity would notify a landing.
       if (p.inAirJump) { p.transitionFromHeight = false; this.action('jump'); }
     } else p.grounded = false;
+    // The smaller physical capsule prevents sustained lane motion into a
+    // solid train side, even after its larger trigger has already fired.
+    // Trigger sweeps below use the accepted motion, not a path through walls.
+    if (!s.flight && p.controllerEnabled && Math.abs(p.x - previousX) > 1e-8) {
+      const solids = this.entities.map(e => ({ ...trainBodyAt(e, s.distance),
+        x: e.x ?? (e.lane - 1) * c.laneSpacing }));
+      const lateral = moveControllerLateral([previousX, p.y, s.distance], p.x - previousX, p.colliderSqueezed, solids);
+      if (lateral.blocked) {
+        p.x = lateral.x;
+        floor = this.surfaceHeight(s.distance, p.x, previousY);
+        p.grounded = p.y <= floor + 1e-8 && p.velocityY <= 0;
+      }
+    }
     p.floor = floor;
 
     // Score only new whole meters with the multiplier active at that instant.
@@ -535,7 +549,8 @@ export class RunnerGame {
     s.baseScore += Math.max(0, meters - s.scoredMeters) * this.scoreMultiplier;
     s.scoredMeters = meters;
 
-    for (const e of this.entities) {
+    for (const sourceEntity of this.entities) {
+      const e = trainBodyAt(sourceEntity, s.distance, previousDistance);
       // Each native Enter rechecks live game state. A rebound or absorbed
       // board hit does not suppress other Enter callbacks in the same step.
       // Entity order remains our deterministic adapter, not PhysX ordering.
@@ -784,7 +799,8 @@ export class RunnerGame {
 
   surfaceHeight(distance, x, previousY) {
     let floor = this.groundPlaneAt(distance, x);
-    for (const e of this.entities) {
+    for (const sourceEntity of this.entities) {
+      const e = trainBodyAt(sourceEntity, distance);
       if (e.collisionDisabled) continue;
       // CharacterController.Move has no train-name whitelist. Recovered solid
       // platforms/barriers also support a descent from above. Keep the legacy

@@ -46,7 +46,7 @@ test('swept relative contacts catch thin walls and fast falls without reporting 
 test('leaving an existing overlap does not synthesize another trigger entry', () => {
   assert.equal(runnerEntityContact([0,0,0],[0,0,3],box,false),null);
   const hit=runnerEntityContact([0,0,-3],[0,0,0],box,false);
-  assert.equal(hit.overlapping,true);assert.equal(hit.time,1);
+  assert.equal(hit.overlapping,true);assert.ok(Math.abs(hit.time - 1.6 / 3) < 1e-7);
 });
 
 test('gameplay uses capsule narrow phase before applying source AABB hit classification', () => {

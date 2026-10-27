@@ -112,9 +112,9 @@ function characterFromUnity(meshes, rig, texture, animations) {
   }
   const clips = Object.fromEntries(Object.entries(animations).map(([name, data]) => [name, clipFromUnity(data, byPath)]));
   const wrapper = new THREE.Group();
-  // Match source geometry's 9.84-unit height to browser play space. Z reflection
+  // Use the same .1 world conversion as route geometry and controller. Z reflection
   // converts Unity handedness once around the whole skeleton and all meshes.
-  native.scale.set(0.195, 0.195, -0.195);
+  native.scale.set(0.1, 0.1, -0.1);
   wrapper.add(native);
   const mixer = new THREE.AnimationMixer(native);
   const actions = Object.fromEntries(Object.entries(clips).map(([name, clip]) => [name, mixer.clipAction(clip)]));
@@ -195,8 +195,8 @@ export function chaserFromUnity(name, info, rig, meshData, animations, textures 
   const root = info.rootTransform;
   native.position.fromArray(root.position); native.quaternion.fromArray(root.quaternion); native.scale.fromArray(root.scale);
   const conversion = new THREE.Group(); conversion.add(native);
-  // Browser presentation fit beside the 1.95m replacement player, not a native gameplay constant.
-  conversion.scale.set(.15, .15, -.15);
+  // Source world conversion, consistent with the player and environment.
+  conversion.scale.set(.1, .1, -.1);
   const wrapper = new THREE.Group(); wrapper.add(conversion); setAnimation('run');
   return { object: wrapper, native, mixer, setAnimation, source: 'apk', animationNames: Object.keys(clips),
     animationDiagnostics: Object.fromEntries(Object.entries(clips).map(([key, clip]) => [key, clip.userData])) };
@@ -294,13 +294,16 @@ export async function loadRecoveredPack(base = '/assets/recovered/', { includeCh
     cloneProp: name => props[name]?.clone(true), clonePrefab: name => prefabs[name]?.clone(true) };
 }
 
-export async function characterFromGLB(buffer, { name = '自定义角色', source = 'import' } = {}) {
+// Recovered Jake: full skinned rest height 9.8435961114 native units.
+export const PLAYER_MODEL_HEIGHT = .98435961114;
+
+export async function characterFromGLB(buffer, { name = '自定义角色', source = 'import', height = PLAYER_MODEL_HEIGHT } = {}) {
   const gltf = await new GLTFLoader().parseAsync(buffer, '');
   const wrapper = new THREE.Group(), native = gltf.scene;
   native.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(native), size = box.getSize(new THREE.Vector3());
   if (!Number.isFinite(size.y) || size.y < 0.0001) throw new Error('模型缺少有效几何');
-  const scale = 1.95 / size.y;
+  const scale = height / size.y;
   native.scale.multiplyScalar(scale);
   native.rotation.y = Math.PI;
   native.updateMatrixWorld(true);

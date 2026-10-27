@@ -95,16 +95,18 @@ export function runnerEntityContact(previous, current, entity, rolling, config =
   const at = t => previous.map((v, i) => v + (current[i] - v) * t);
   const obstacleAt = t => ({ ...entity, distance: beforeZ + (entity.distance - beforeZ) * t });
   const distance = t => capsuleEntitySeparation(runnerCapsule(at(t), rolling, config), obstacleAt(t));
-  if (distance(1) <= 1e-9) return { time: 1, position: current, entity, overlapping: true };
-  if (distance(0) <= 1e-9) return null; // Already leaving; do not create a new Enter.
+  const overlapping = distance(1) <= 1e-9;
+  if (distance(0) <= 1e-9) return overlapping
+    ? { time: 0, position: previous, entity: obstacleAt(0), overlapping }
+    : null; // Already leaving; do not create a new Enter.
   let lo = 0, hi = 1;
   for (let i = 0; i < 36; i++) {
     const a = (2 * lo + hi) / 3, b = (lo + 2 * hi) / 3;
     if (distance(a) < distance(b)) hi = b; else lo = a;
   }
-  const middle = (lo + hi) / 2;
+  const middle = overlapping ? 1 : (lo + hi) / 2;
   if (distance(middle) > 1e-9) return null;
   lo = 0; hi = middle;
   for (let i = 0; i < 32; i++) { const t = (lo + hi) / 2; if (distance(t) <= 1e-9) hi = t; else lo = t; }
-  return { time: hi, position: at(hi), entity: obstacleAt(hi), overlapping: false };
+  return { time: hi, position: at(hi), entity: obstacleAt(hi), overlapping };
 }

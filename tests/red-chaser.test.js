@@ -20,7 +20,7 @@ test('red-nose skin has valid normalized weights, grounded feet and animated leg
  actor.native.traverse(m=>{if(!m.isSkinnedMesh)return;const w=m.geometry.attributes.skinWeight,j=m.geometry.attributes.skinIndex;for(let i=0;i<w.count;i++){let sum=0;for(let k=0;k<4;k++){assert.ok(w.array[i*4+k]>=0);assert.ok(j.array[i*4+k]<18);sum+=w.array[i*4+k];}assert.ok(Math.abs(sum-1)<1e-5);vertices++;}});assert.ok(vertices>30000);
  assert.ok(Math.abs(box(actor).min.y)<.005);
  const leg=actor.native.getObjectByName('leg_B_L');let last=null,changed=0;
- for(let i=0;i<90;i++){actor.mixer.update(1/60);const b=box(actor);assert.ok(b.min.y>-.035,`Below floor: ${b.min.y}`);assert.ok(b.max.y>1.5&&b.max.y<2.5);if(last&&last.angleTo(leg.quaternion)>.001)changed++;last=leg.quaternion.clone();actor.native.traverse(n=>{if(n.isBone)assert.ok(n.scale.distanceTo(new THREE.Vector3(1,1,1))<1e-6);});}assert.ok(changed>65);
+ for(let i=0;i<90;i++){actor.mixer.update(1/60);const b=box(actor);assert.ok(b.min.y>-.035,`Below floor: ${b.min.y}`);assert.ok(b.max.y>.75&&b.max.y<1.27);if(last&&last.angleTo(leg.quaternion)>.001)changed++;last=leg.quaternion.clone();actor.native.traverse(n=>{if(n.isBone)assert.ok(n.scale.distanceTo(new THREE.Vector3(1,1,1))<1e-6);});}assert.ok(changed>65);
 });
 test('one red-nose actor replaces both original chasers and resumes running after the source grab animation',async()=>{
  const actor=await load(),view=createChaserPresentation({guard:actor}),game=new RunnerGame();game.entities=[];game.nextSection=Infinity;game.start();game.stumble();game.advance(.1);view.update(game.state,.1);
