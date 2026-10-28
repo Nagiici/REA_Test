@@ -1,0 +1,20 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>经典模式 · 原版队列与落地衔接验证</title>
+<style>body{margin:0;background:#123839;color:#edf3da;font:14px system-ui}iframe{display:block;border:0;width:100%;height:calc(100dvh - 170px)}nav{display:flex;gap:8px;padding:10px;flex-wrap:wrap}button{padding:8px;border:0;border-radius:6px;background:#e9efce;color:#143e3c}output{display:block;white-space:pre-wrap;padding:0 12px}</style>
+<iframe src="/scripts/classic-v9-game.html" title="经典模式场景"></iframe>
+<nav><button id="roof">车顶落地场景</button><button id="front">车头避让场景</button><button id="exit">背包结束</button><button id="dodge">下降中向右换道</button><button id="land">首次接地</button><button id="jump">接地后跳跃</button></nav><output>等待资源…</output>
+<script type="module">
+const f=document.querySelector('iframe'),out=document.querySelector('output');let r,label='准备',target=0,trace=[];
+function resume(g){if(g.state.phase==='paused')g.pause();}function stop(g){if(g.state.phase==='running')g.pause();}
+function until(g,predicate,limit=5000){resume(g);for(let i=0;i<limit&&!predicate()&&g.state.phase==='running';i++)g.advance(1/120);stop(g);}
+function prepare(roof){const g=r.game;Object.assign(g.config,{initialSpeed:roof?22:17,maximumSpeed:22,powerupTier:roof?0:6,seed:roof?2:3});g.reset();const opts=g.introOptions;g.introOptions=null;g.start();g.introOptions=opts;g.activatePowerup('jetpack');g.action('left');target=g.state.flight.targetZ;until(g,()=>g.state.distance>=target-1);g.drainEvents();trace=[];label=roof?'后续车顶可作为落地点':'侧道有车头，可以在下降时换道';}
+setInterval(()=>{if(!r&&f.contentWindow.__runner?.ready)r=f.contentWindow.__runner;if(!r)return;const g=r.game,s=g.state,p=s.player,q=g.routeGenerator.queue;f.contentDocument.querySelector('#menu').style.visibility=s.phase==='paused'?'hidden':'';
+// Manual stepping skips render updates; put only the QA camera at inspection pose.
+if(s.phase==='paused')r.cameraController.reset({characterPosition:[p.x,p.y,s.distance]});
+const l=g.routeTrace.find(c=>c.jetpackLanding?.kind==='landing'&&c.startDistance===target),next=g.routeTrace.find(c=>c.startDistance===target+18);
+out.textContent=`${label} · 状态 ${s.phase} · 飞行 ${!!s.flight} · 跑道 ${p.lane+1}\n目标 ${target} · 位置 ${s.distance.toFixed(3)} · 高度 ${p.y.toFixed(3)} · 接地 ${p.grounded} · 垂直速度 ${p.velocityY.toFixed(3)}\n原版落地段 ${l?`${l.startDistance}–${l.startDistance+l.length}`:'待生成'} · 后续 ${next?.chunkId?.split('/').at(-1)||'待构建'} · 额外安全段 ${g.routeTrace.filter(c=>c.jetpackLanding?.kind==='landing-safety-padding').length}\n队列预选到 ${q.spawnedEdge} · 构建到 ${q.builtEdge} · 未构建 ${q.chunks.filter(c=>!c.built).length} · ${trace.join(' → ')} · 游戏错误 ${r.errors.join('|')||0}`;},40);
+document.querySelector('#roof').onclick=()=>prepare(true);document.querySelector('#front').onclick=()=>prepare(false);
+document.querySelector('#exit').onclick=()=>{const g=r.game;until(g,()=>!g.state.flight);trace=g.events.map(e=>e.type);label='飞行结束，保持侧道，恢复普通物理';};
+document.querySelector('#dodge').onclick=()=>{const g=r.game;resume(g);const accepted=g.action('right');for(let i=0;i<24;i++)g.advance(1/120);stop(g);label=`下降中换道 ${accepted}`;};
+document.querySelector('#land').onclick=()=>{const g=r.game;until(g,()=>!g.state.flight&&g.state.player.grounded);if(g.state.phase!=='gameover'){resume(g);g.advance(1/120);stop(g);}trace=g.events.map(e=>e.type);label=g.state.phase==='gameover'?'保留原版障碍，侧道车头碰撞':'已到达真实支撑面，没有追加空白段';};
+document.querySelector('#jump').onclick=()=>{const g=r.game;resume(g);label=`接地后跳跃 ${g.action('jump')}`;setTimeout(()=>stop(g),250);};
+</script></html>

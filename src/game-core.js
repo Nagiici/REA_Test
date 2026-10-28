@@ -759,9 +759,10 @@ export class RunnerGame {
     const target = this.routeGenerator?.scheduleJetpackLanding?.(flight.targetZ, this.nextSection);
     if (target == null) return flight;
     flight = this.jetpack.extendTarget(target);
-    // Evaluate clearance AFTER packing the target; a later target means more
-    // speed-ramp time. Already built course and obstacle collision stay intact.
-    this.routeGenerator.reserveJetpackLandingRunout?.(landingRunout(flight,
+    // Ordinary flight uses the authored 18-unit section and normal following
+    // geometry. Keep the pre-existing turbo/headstart adapter outside this
+    // ordinary-flight reconstruction until its separate route flow is traced.
+    if (flight.headstart) this.routeGenerator.reserveJetpackLandingRunout?.(landingRunout(flight,
       { ...this.config, distance: this.state.distance, levelSpeed: this.state.levelSpeed }));
     return flight;
   }
@@ -906,6 +907,18 @@ export class RunnerGame {
   }
 
   ensureCourse() {
+    if (this.routeGenerator?.updateCourse) {
+      const chunks = this.routeGenerator.updateCourse({ playerDistance: this.state.distance,
+        speed: this.state.speed, elapsed: this.state.elapsed }, { prime: this.state.phase === 'ready' });
+      for (const chunk of chunks) {
+        for (const entity of chunk.entities) this.addEntity(entity);
+        this.routeTrace.push({ startDistance: chunk.provenance.queue.startDistance, length: chunk.length,
+          ...chunk.provenance, decisions: chunk.decisions });
+        this.sectionCount++;
+      }
+      this.nextSection = this.routeGenerator.queue.spawnedEdge;
+      return;
+    }
     while (this.nextSection < this.state.distance + this.config.lookAhead) {
       if (this.routeGenerator) this.addSourceSection();
       else if (this.routeLibrary.length) this.addRecoveredSection();

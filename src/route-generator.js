@@ -341,6 +341,7 @@ export class SourceRouteGenerator {
     this.currentSection = null;
     this.pickerState = new Map();
     this.pendingJetpackLanding = null;
+    this.forcedLandingSection = null;
     this.landingSafetyPadding = null;
     this.spawnPointManager.reset();
   }
@@ -380,6 +381,21 @@ export class SourceRouteGenerator {
     this.performSelections(instance, selectors, result);
     this.activateTrackObjects(instance, result);
     this.emitInstance(instance, matrix, { ...context, startDistance, speed: context.speed ?? 11 }, result);
+    return result;
+  }
+
+  prepareChunk(chunkId, context) {
+    if (!context.deferBuild) return this.compileChunk(chunkId, context);
+    const chunk = this.resolveChunk(chunkId);
+    return { length: (chunk.verifiedChunkLength ?? chunk.length) * this.unitScale,
+      entities: [], decisions: [], provenance: { chunkId, source: chunk.source, seed: this.seed, unitScale: this.unitScale },
+      deferred: { chunkId, context: { ...context, deferBuild: false } }, section: this.currentSection };
+  }
+
+  buildPreparedChunk(plan, context) {
+    const result = this.compileChunk(plan.deferred.chunkId, { ...plan.deferred.context, ...context });
+    result.provenance = { ...result.provenance, ...plan.provenance };
+    result.decisions.unshift(...plan.decisions);
     return result;
   }
 
@@ -781,22 +797,37 @@ export class SourceRouteGenerator {
     return this.entryChunkId(this.weightedEntries(fallback.fields._midChunks)[0]);
   }
 
-  compileJetpackLanding(context) {
+  prepareJetpackLandingSection(context) {
     const request = this.pendingJetpackLanding;
+    if (this.forcedLandingSection?.request === request) return;
     const builder = this.settings.objects[this.settings.roots.defaultRoute].fields._defaultRouteBuilder;
     const sectionId = builder._jetpackEndSection.ref, section = this.sectionObject(sectionId);
     const decisions = [];
     // ProcessBuildDirectives -> AddSection -> Reset: direct insertion counts
     // and samples the section, but bypasses GetMidSectionPrefab repeat state.
     this.resetSection(sectionId, context, decisions);
+    this.forcedLandingSection = { request, section: this.currentSection, sectionId, object: section, decisions };
+  }
+
+  compileJetpackLanding(context) {
+    const request = this.pendingJetpackLanding;
+    this.prepareJetpackLandingSection(context);
+    const { sectionId, object: section, decisions } = this.forcedLandingSection;
     const chunkId = 'routes/default/chunks/routechunk_default_jetpack_landing';
-    const chunk = this.compileChunk(chunkId, { ...context, sectionId, sectionFields: section.fields });
+    const chunk = this.prepareChunk(chunkId, { ...context, sectionId, sectionFields: section.fields });
     if (Math.abs(chunk.length - 180 * this.unitScale) > 1e-7) throw new Error('Source Jetpack landing chunk must be 180 units');
     chunk.provenance.sectionId = sectionId;
     chunk.provenance.sectionName = section.name;
     chunk.provenance.phase = 'jetpack-landing';
     chunk.provenance.jetpackLanding = { ...request, kind: 'landing' };
     chunk.decisions.unshift(...decisions, { type: 'JetpackLandingAdapter', ...request, chunkId });
+    // GetNextChunk consumes the sole middle chunk before the section becomes
+    // a rollback survivor. Retaining phase 1 would emit a duplicate landing
+    // chunk when a later directive restores this section as current.
+    this.currentSection.middleUsed = 1;
+    this.currentSection.picked.add(chunkId);
+    this.currentSection.phase = 3;
+    this.forcedLandingSection = null;
     this.pendingJetpackLanding = null;
     const blocks = Math.ceil(Math.max(0, request.landingRunout - chunk.length) / (180 * this.unitScale));
     if (blocks) this.landingSafetyPadding = { ...request, remainingBlocks: blocks, blockCount: blocks,
@@ -812,11 +843,13 @@ export class SourceRouteGenerator {
     if (Math.abs(context.startDistance - request.nextStart) > 1e-7) throw new Error('Landing safety padding must follow the source landing chunk');
     const builder = this.settings.objects[this.settings.roots.defaultRoute].fields._defaultRouteBuilder;
     const sectionId = builder._fallbackSection.ref, section = this.sectionObject(sectionId);
-    const chunk = this.compileChunk(this.fallbackChunkId(), { ...context, sectionId, sectionFields: section.fields });
+    const chunk = this.prepareChunk(this.fallbackChunkId(), { ...context, sectionId, sectionFields: section.fields });
     if (Math.abs(chunk.length - 180 * this.unitScale) > 1e-7) throw new Error('Landing safety filler must use an unmodified 180-unit source fallback');
     chunk.provenance.sectionId = sectionId;
     chunk.provenance.sectionName = section.name;
     chunk.provenance.phase = 'landing-safety-padding';
+    if (context.deferBuild) chunk.section = { id: sectionId, fields: section.fields,
+      startDistance: context.startDistance, phase: 3 };
     chunk.provenance.jetpackLanding = { ...request, kind: 'landing-safety-padding', adapter: 'browser-landing-runout' };
     chunk.decisions.unshift({ type: 'LandingRunoutAdapter', ...chunk.provenance.jetpackLanding });
     request.nextStart += chunk.length;
@@ -878,7 +911,10 @@ export class SourceRouteGenerator {
     const section = this.currentSection, phase = section.phase;
     const entry = this.pick(section.pools[phase], candidate => {
       const id = this.entryChunkId(candidate), graph = this.resolveChunk(id);
-      if (landing && context.startDistance + (graph.verifiedChunkLength ?? graph.length) * this.unitScale > landing.target + 1e-7) return false;
+      // Native CanSpawnChunk83949 skips directive constraints when there are
+      // no constraining builders. The ordinary deferred queue takes that path;
+      // the legacy direct compiler retains its explicit packing adapter.
+      if (!context.deferBuild && landing && context.startDistance + (graph.verifiedChunkLength ?? graph.length) * this.unitScale > landing.target + 1e-7) return false;
       return graph.routeChunkFields._isRepeatableInSections || !section.picked.has(id);
     }, `${section.id}/phase-${phase}`, decisions);
     let chunkId;
@@ -887,14 +923,14 @@ export class SourceRouteGenerator {
       chunkId = this.fallbackChunkId();
       decisions.push({ type: 'FallbackChunk', chunkId, reason: 'ordered-picker-returned-null' });
     }
-    if (landing && context.startDistance + this.resolveChunk(chunkId).length * this.unitScale > landing.target + 1e-7) throw new Error('Source fallback chunk cannot fit the pending Jetpack landing gap');
+    if (!context.deferBuild && landing && context.startDistance + this.resolveChunk(chunkId).length * this.unitScale > landing.target + 1e-7) throw new Error('Source fallback chunk cannot fit the pending Jetpack landing gap');
     if (phase === 1) section.middleUsed++;
     if (!(phase === 1 && (!section.fields._middleChunkCountLimited || section.middleUsed < section.middleTarget))) {
       section.phase++;
       while (section.phase < 3 && !section.pools[section.phase].length) section.phase++;
     }
     section.picked.add(chunkId);
-    const chunk = this.compileChunk(chunkId, { ...context, sectionId: section.id, sectionFields: section.fields });
+    const chunk = this.prepareChunk(chunkId, { ...context, sectionId: section.id, sectionFields: section.fields });
     chunk.provenance.sectionId = section.id;
     chunk.provenance.sectionName = section.object.name;
     chunk.provenance.phase = phase;
