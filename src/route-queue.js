@@ -1,18 +1,22 @@
+import { RouteWorker } from './route-worker.js';
 /** Ordinary DefaultRouteBuilder queue (APK 7.07.0).
  * Spawn chooses chunk prefabs; Build performs selectors/activation later.
  * Update83932: one spawn per update, BuildChunks83935: start < playerZ+900.
  * CurrentDistanceToChunksSpawned83931 retains its menu default 2000 in a
  * normal run; 500 is the tutorial-loading reset, not the ordinary run value.
- * Browser adaptation: worker work completes synchronously at Build; no Unity
- * frame-budgeted scene worker or alternate/constraining builders here.
+ * Normal build enqueues cooperative content work. IsBuilt is a scheduling
+ * flag; ready/readyEdge describe completed content, not the built cursor.
  */
 export const CLASSIC_ROUTE_QUEUE = Object.freeze({ spawnAhead: 200, buildAhead: 90, despawnBehind: 17 });
 const EPS = 1e-7;
 
 export class ClassicRouteQueue {
-  constructor(source, decorate = chunk => chunk) { this.source = source; this.decorate = decorate; this.reset(); }
+  constructor(source, decorate = chunk => chunk, workerOptions = {}) {
+    this.source = source; this.decorate = decorate; this.worker = new RouteWorker(workerOptions); this.reset();
+  }
   reset() {
-    this.spawnedEdge = this.builtEdge = this.source.initialDistance;
+    this.spawnedEdge = this.builtEdge = this.readyEdge = this.source.initialDistance;
+    this.worker.reset(); this.completed = []; this.context = null;
     this.chunks = []; this.sections = []; this.directives = []; this.events = [];
     this.nextId = 0;
   }
@@ -43,7 +47,7 @@ export class ClassicRouteQueue {
     if (target < this.minimumJetpackLandingZ - EPS || target < this.builtEdge - EPS)
       return this.reject(target, 'built-section-boundary');
     const request = { requestedTarget: target, target, leadingEdgeAtRequest: this.spawnedEdge,
-      currentSectionMinimum: this.minimumJetpackLandingZ, landingRunout: 0,
+      currentSectionMinimum: this.minimumJetpackLandingZ,
       strict: true, sectionSpawnMode: 'All', chunkBuildMode: 'Normal', adapter: 'source-build-directive' };
     this.directives.push(request);
     this.source.pendingJetpackLanding = this.pendingJetpackLanding;
@@ -56,7 +60,7 @@ export class ClassicRouteQueue {
   }
 
   update(context, { prime = false } = {}) {
-    const emitted = [];
+    const emitted = []; this.context = context;
     // Menu/loading runs this update repeatedly before input is available.
     do {
       while (this.pendingJetpackLanding && this.pendingJetpackLanding.target < this.spawnedEdge - EPS) {
@@ -84,18 +88,31 @@ export class ClassicRouteQueue {
       for (const chunk of this.chunks) {
         if (chunk.built) continue;
         if (chunk.startDistance >= context.playerDistance + CLASSIC_ROUTE_QUEUE.buildAhead) break;
-        const built = this.source.buildPreparedChunk(chunk.plan, context);
-        built.provenance.queue = { id: chunk.id, startDistance: chunk.startDistance,
-          builtAtPlayerDistance: context.playerDistance, mode: 'Normal' };
-        chunk.built = true;
+        // RouteChunk.Build sets IsBuilt before the coroutine performs selectors.
+        chunk.built = true; chunk.ready = false;
         if (chunk.id === chunk.sectionRecord.firstId) chunk.sectionRecord.firstBuilt = true;
         this.builtEdge = chunk.endDistance;
-        emitted.push(this.decorate(built, { ...context, startDistance: chunk.startDistance }));
+        const builtAtPlayerDistance = context.playerDistance;
+        this.worker.enqueue('spawn', chunk,
+          this.source.buildPreparedChunkWork(chunk.plan, () => this.context), built => {
+            built.provenance.queue = { id: chunk.id, startDistance: chunk.startDistance,
+              builtAtPlayerDistance, readyAtPlayerDistance: this.context.playerDistance, mode: 'Normal' };
+            chunk.ready = true; this.readyEdge = chunk.endDistance;
+            this.completed.push(this.decorate(built, { ...this.context, startDistance: chunk.startDistance }));
+          });
       }
+
+      while (this.chunks[0]?.built && this.chunks[0].endDistance + CLASSIC_ROUTE_QUEUE.despawnBehind < context.playerDistance) {
+        const chunk = this.chunks.shift();
+        // Browser meshes/entities have their own distance-based lifetime; this
+        // coroutine releases the queue descriptor (there are no Unity pools).
+        this.worker.enqueue('despawn', chunk, (function* () { chunk.plan = null; yield; })());
+      }
+      const active = new Set(this.chunks.map(chunk => chunk.sectionRecord));
+      this.sections = this.sections.filter((section, i) => active.has(section) || i === this.sections.length - 1);
+      this.worker.update(context.playerDistance);
+      emitted.push(...this.completed.splice(0));
     } while (prime && this.spawnedEdge < context.playerDistance + CLASSIC_ROUTE_QUEUE.spawnAhead);
-    while (this.chunks[0]?.built && this.chunks[0].endDistance + CLASSIC_ROUTE_QUEUE.despawnBehind < context.playerDistance) this.chunks.shift();
-    const active = new Set(this.chunks.map(chunk => chunk.sectionRecord));
-    this.sections = this.sections.filter((section, i) => active.has(section) || i === this.sections.length - 1);
     // Bounded diagnostics; source queue itself retains only live chunks.
     if (this.events.length > 128) this.events.splice(0, this.events.length - 128);
     return emitted;

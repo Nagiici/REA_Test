@@ -1,10 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
 import { Jetpack, HEADSTART } from '../src/jetpack.js';
 import { ClassicCamera, classicCameraFov } from '../src/classic-camera.js';
 import { RunnerGame } from '../src/game-core.js';
-import { SourceRouteGenerator } from '../src/route-generator.js';
 
 const near=(a,b,tol=1e-8)=>assert.ok(Math.abs(a-b)<tol,`${a} != ${b}`);
 function empty(){const g=new RunnerGame({acceleration:0});g.entities=[];g.nextSection=1e9;g.start();return g;}
@@ -69,16 +67,4 @@ test('game opens headstart without airborne coin line, preserves pause, advances
   assert.equal(g.state.flight,null);near(g.state.levelSpeed,11+11*Math.fround(.01));
   assert.ok(g.events.some(e=>e.type==='headstart-end'));
   assert.equal(g.state.player.transitionFromHeight,true);
-});
-
-test('full default-route triple headstart ends on planned clear runway and returns to running',()=>{
-  const read=n=>JSON.parse(fs.readFileSync(new URL('../public/assets/recovered/'+n,import.meta.url)));
-  const l=read('route-library.json');l.collisionTags=read('classic-collision-index.json');l.modelBindings=read(l.modelBindingsFile);
-  const g=new RunnerGame({acceleration:0});g.setRouteGenerator(new SourceRouteGenerator(l,{seed:40}));g.headstartOnStart=true;g.start();
-  const step=()=>g.advance(1/120);
-  for(let i=0;i<240;i++)step();assert.equal(g.action('turbo'),true);
-  for(let i=0;i<240;i++)step();assert.equal(g.action('turbo'),true);
-  for(let i=0;i<2400&&g.state.flight;i++)step();
-  assert.equal(g.state.flight,null);assert.equal(g.state.phase,'running');assert.equal(g.state.levelSpeed,22);
-  for(let i=0;i<180;i++)step();assert.equal(g.state.player.grounded,true);assert.equal(g.state.phase,'running');
 });

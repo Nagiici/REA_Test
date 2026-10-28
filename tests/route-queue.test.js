@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import { SourceRouteGenerator } from '../src/route-generator.js';
 import { ClassicRouteQueue } from '../src/route-queue.js';
 const library = JSON.parse(fs.readFileSync(new URL('../public/assets/recovered/route-library.json',import.meta.url)));
-const make = seed => { const source = new SourceRouteGenerator(library,{seed}); return {source,queue:new ClassicRouteQueue(source)}; };
+const make = seed => { const source = new SourceRouteGenerator(library,{seed}); return {source,queue:new ClassicRouteQueue(source, chunk => chunk, { now: () => 0 })}; };
 const context = (playerDistance=0) => ({playerDistance,speed:22,elapsed:0});
 
 test('prefab spawning is separate from construction; exact build horizon is exclusive',()=>{
@@ -87,4 +87,20 @@ test('a directive at the cursor creates its section before the next chunk enters
  queue.update(context());assert.equal(source.sectionCount,count+1,'waiting does not repeatedly Reset the section');
  queue.update(context(edge-200+.001));assert.equal(queue.spawnedEdge,edge+18);
  assert.equal(source.sectionCount,count+1,'spawning consumes the existing forced section');
+});
+
+test('real selection work remains pending across budgeted updates while IsBuilt protects the section from rollback',()=>{
+ let time=0;const source=new SourceRouteGenerator(library,{seed:5});
+ const queue=new ClassicRouteQueue(source,c=>c,{now:()=>time+=10});
+ queue.update(context(),{prime:true});
+ const pending=queue.chunks.find(c=>!c.built),z=pending.startDistance-85;
+ const previousReady=queue.readyEdge;
+ queue.update(context(z));assert.equal(pending.built,true);assert.equal(pending.ready,false);
+ assert.equal(queue.readyEdge,previousReady);
+ assert.ok(queue.worker.spawn.length>0);
+ assert.equal(queue.enqueueJetpackLanding(pending.startDistance).accepted,false);
+ assert.ok(queue.chunks.includes(pending),'built but unfinished chunks cannot be rolled back');
+ let emitted=[];for(let i=0;i<500&&!pending.ready;i++)emitted.push(...queue.update(context(z)));
+ assert.equal(pending.ready,true);assert.ok(emitted.some(c=>c.provenance.queue.id===pending.id));
+ assert.ok(emitted.some(c=>c.decisions.length>0));
 });

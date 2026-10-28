@@ -1,0 +1,23 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>经典模式 · 分帧构建与极速起跑落地验证</title>
+<style>body{margin:0;background:#123839;color:#edf3da;font:14px system-ui}iframe{display:block;border:0;width:100%;height:calc(100dvh - 185px)}nav{display:flex;gap:8px;padding:10px;flex-wrap:wrap}button{padding:8px;border:0;border-radius:6px;background:#e9efce;color:#143e3c}output{display:block;white-space:pre-wrap;padding:0 12px}</style>
+<iframe src="/scripts/classic-v9-game.html" title="经典模式场景"></iframe>
+<nav><button id="tier0">一档冲刺</button><button id="tier1">二档冲刺</button><button id="tier2">三档冲刺</button><button id="exit">飞行结束</button><button id="right">下降中右移</button><button id="land">首次接地</button><button id="jump">接地后跳跃</button><button id="sliced">预算耗尽验证</button><button id="frame">推进一帧</button></nav><output>等待资源…</output>
+<script type="module">
+const f=document.querySelector('iframe'),out=document.querySelector('output');let r,label='准备',targets=[],time=0,budgetTest=false;
+function resume(g){if(g.state.phase==='paused')g.pause();}function stop(g){if(g.state.phase==='running')g.pause();}
+function step(g){g.advance(1/60);}function until(g,predicate,limit=2400){resume(g);for(let i=0;i<limit&&!predicate()&&g.state.phase==='running';i++)step(g);stop(g);}
+function setup(){const g=r.game;Object.assign(g.config,{initialSpeed:11,maximumSpeed:22,acceleration:0,seed:1});g.routeGenerator.workerOptions={now:budgetTest?()=>time+=10:()=>performance.now()};g.reset();const intro=g.introOptions;g.introOptions=null;g.headstartOnStart=true;g.start();g.headstartOnStart=false;g.introOptions=intro;targets=[g.state.flight.targetZ];return g;}
+function prepare(tier){budgetTest=false;const g=setup();let boost=0;
+ until(g,()=>{if(boost<tier&&g.state.elapsed>=2+boost*2){g.action('turbo');boost++;}const t=g.state.flight?.targetZ;if(t&&t!==targets.at(-1))targets.push(t);return g.state.distance>targets.at(-1)-4&&boost===tier;});label=`${tier+1}档极速起跑 · 原版目标保留 ${targets.join(' → ')}`;g.drainEvents();}
+setInterval(()=>{if(!r&&f.contentWindow.__runner?.ready)r=f.contentWindow.__runner;if(!r)return;const g=r.game,s=g.state,p=s.player,q=g.routeGenerator.queue,w=q.worker;f.contentDocument.querySelector('#menu').style.visibility=s.phase==='paused'?'hidden':'';
+if(s.phase==='paused')r.cameraController.reset({characterPosition:[p.x,p.y,s.distance]});
+const target=targets.at(-1),next=g.routeTrace.find(c=>c.startDistance===target+18),last=w.lastUpdate;
+out.textContent=`${label} · ${s.phase} · 高度 ${p.y.toFixed(3)} · 接地 ${p.grounded} · 跑道 ${p.lane+1}\n目标 ${targets.join(' → ')} · 位置 ${s.distance.toFixed(3)} · 已插入 ${g.routeTrace.filter(c=>c.jetpackLanding?.kind==='landing').map(c=>`${c.startDistance}–${c.startDistance+c.length}`).join(' / ')} · 额外安全段 ${g.routeTrace.filter(c=>c.jetpackLanding?.kind==='landing-safety-padding').length}\n预选到 ${q.spawnedEdge} · 已构建 ${q.builtEdge} · 内容就绪 ${q.readyEdge} · 队列 ${w.spawn.length}构建/${w.despawn.length}清理 · ${last?`${last.kind} ${last.budgetMs.toFixed(2)}ms · 本帧${last.steps}步 · 完成${last.completed}`:'空闲'}\n后续 ${next?.chunkId?.split('/').at(-1)||'等待'} · 错误 ${r.errors.join('|')||0}${budgetTest?' · 测试时钟：每次读取+10ms，主动耗尽预算':''}`;},40);
+for(let tier=0;tier<3;tier++)document.querySelector('#tier'+tier).onclick=()=>prepare(tier);
+document.querySelector('#exit').onclick=()=>{until(r.game,()=>!r.game.state.flight);label='冲刺结束，保持原跑道，恢复重力';};
+document.querySelector('#right').onclick=()=>{const g=r.game;resume(g);label=`下降中换道 ${g.action('right')}`;for(let i=0;i<12;i++)step(g);stop(g);};
+document.querySelector('#land').onclick=()=>{const g=r.game;until(g,()=>!g.state.flight&&g.state.player.grounded);label=g.state.phase==='gameover'?'原版后续障碍碰撞':'真实支撑面接地 · 无额外补段';};
+document.querySelector('#jump').onclick=()=>{const g=r.game;resume(g);label=`接地后跳跃 ${g.action('jump')}`;for(let i=0;i<10;i++)step(g);stop(g);};
+document.querySelector('#sliced').onclick=()=>{budgetTest=true;time=0;const g=setup();until(g,()=>g.routeGenerator.queue.worker.lastUpdate?.completed===false);label='真实选择任务跨帧保留，临近时强制完成队首';};
+document.querySelector('#frame').onclick=()=>{const g=r.game;resume(g);step(g);stop(g);};
+</script></html>

@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Jetpack, JETPACK_SECONDS, landingRunout } from '../src/jetpack.js';
-import { DEFAULT_CONFIG } from '../src/config.js';
+import { Jetpack, JETPACK_SECONDS } from '../src/jetpack.js';
 
 const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-9, `${actual} != ${expected}`);
 
@@ -80,15 +79,4 @@ test('native target compares the unrounded goal to minimum section end before se
   assert.equal(jetpack.begin({ distance: 0, y: 0, levelSpeed: 11, minimumTargetZ: 205.19 }).targetZ, 205.1);
   assert.equal(jetpack.begin({ distance: 0, y: 0, levelSpeed: 11, minimumTargetZ: 200 }).targetZ, 216);
   assert.equal(jetpack.begin({ distance: 0, y: 0, levelSpeed: 11, minimumTargetZ: 216 }).targetZ, 216);
-});
-
-test('clearance predicts touchdown speed after a long flight and packed target, without changing the physics', () => {
-  const jetpack = new Jetpack({ tier: 6 });
-  const flight = jetpack.begin({ distance: 0, y: 0, levelSpeed: 17 });
-  const config = { ...DEFAULT_CONFIG, distance: 0, levelSpeed: 17 };
-  assert.ok(17 * Math.sqrt(19 / config.gravity) + .3 + 34 / 120 < 18, 'old takeoff-speed estimate missed this case');
-  assert.ok(landingRunout(flight, config) > 18);
-  assert.ok(landingRunout(jetpack.extendTarget(flight.targetZ + 180), config) > landingRunout(flight, config));
-  assert.equal(jetpack.y, 0);
-  assert.equal(jetpack.speed, 34);
 });

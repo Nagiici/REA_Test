@@ -8,7 +8,7 @@ const root = new URL('../public/assets/recovered/', import.meta.url);
 const read = path => JSON.parse(fs.readFileSync(new URL(path, root)));
 const library = read('route-library.json'); library.modelBindings = read(library.modelBindingsFile);
 const bindings = read(read('manifest.json').environmentBindings);
-const generator = seed => new EnvironmentRouteGenerator(new SourceRouteGenerator(library, { seed }), bindings);
+const generator = seed => new EnvironmentRouteGenerator(new SourceRouteGenerator(library, { seed }), bindings, { workerOptions: { now: () => 0 } });
 function make(config={}) {const g=new RunnerGame(config);g.setRouteGenerator(generator(config.seed??1));g.start();return g;}
 function land(g) {
  for(let i=0;i<5000;i++) {

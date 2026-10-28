@@ -131,8 +131,9 @@ export class EnvironmentSelector {
 }
 
 export class EnvironmentRouteGenerator {
-  constructor(source, bindings) {
+  constructor(source, bindings, { workerOptions = {} } = {}) {
     this.source = source;
+    this.workerOptions = workerOptions;
     this.bindings = bindings;
     this.initialDistance = source.initialDistance;
     this.unitScale = source.unitScale;
@@ -144,29 +145,23 @@ export class EnvironmentRouteGenerator {
     this.queueActive = false;
     this.selector = new EnvironmentSelector(this.bindings, seed);
     this.layout = new EnvironmentLayout(this.bindings, { seed, unitScale: this.unitScale });
-    this.queue = new ClassicRouteQueue(this.source, (chunk, context) => this.decorate(chunk, context));
+    this.queue = new ClassicRouteQueue(this.source, (chunk, context) => this.decorate(chunk, context), this.workerOptions);
   }
 
   nextChunk(context) {
     return this.decorate(this.source.nextChunk(context), context);
   }
 
-  scheduleJetpackLanding(requestedTarget, leadingEdge, landingRunout = 0) {
+  scheduleJetpackLanding(requestedTarget, leadingEdge) {
     if (this.queueActive) {
       const result = this.queue.enqueueJetpackLanding(requestedTarget);
       return result.accepted ? result.target : null;
     }
-    return this.source.scheduleJetpackLanding(requestedTarget, leadingEdge, landingRunout);
+    return this.source.scheduleJetpackLanding(requestedTarget, leadingEdge);
   }
 
   get pendingJetpackLanding() { return this.queueActive ? this.queue.pendingJetpackLanding : this.source.pendingJetpackLanding; }
   get minimumJetpackLandingZ() { return this.queueActive ? this.queue.minimumJetpackLandingZ : this.source.minimumJetpackLandingZ; }
-  reserveJetpackLandingRunout(distance) {
-    if (!this.queueActive) return this.source.reserveJetpackLandingRunout(distance);
-    const request = this.queue.directives.at(-1);
-    if (!request || !Number.isFinite(distance) || distance < 0) throw new Error('Invalid pending headstart runout');
-    request.landingRunout = distance;
-  }
   updateCourse(context, options) { this.queueActive = true; return this.queue.update(context, options); }
 
   decorate(result, context) {

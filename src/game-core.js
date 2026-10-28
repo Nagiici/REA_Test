@@ -6,7 +6,7 @@ import { trainBodyAt } from './classic-train-body.js';
 import { moveControllerSwept } from './classic-controller-move.js';
 import { classicVerticalMotion } from './classic-vertical.js';
 import { CLASSIC_CONTROLLER, controllerInterval, expandController } from './classic-controller.js';
-import { Jetpack, landingRunout } from './jetpack.js';
+import { Jetpack } from './jetpack.js';
 import { makeFlightCoins } from './flight-coins.js';
 import { makeHeadstartRewards } from './headstart-rewards.js';
 import { Hoverboard, HOVERBOARD_BROWSER_ADAPTER } from './hoverboard.js';
@@ -291,6 +291,8 @@ export class RunnerGame {
       else this.stepRevival(dt);
       this.accumulator -= dt;
     }
+    // RouteManager.Update is once per rendered/update frame, not FixedUpdate.
+    if (this.state.phase === 'running' || this.state.phase === 'intro') this.ensureCourse();
   }
 
   updatePowerupTimes(dt) {
@@ -688,7 +690,6 @@ export class RunnerGame {
     }
     s.score = s.baseScore + s.coins * this.rawMultiplier * 2;
     this.entities = this.entities.filter(e => e.distance + (e.depth ?? 0) / 2 > s.distance - c.removeBehind);
-    this.ensureCourse();
   }
 
   get rawMultiplier() { return clamp(Math.floor(this.config.playerLevel), 0, 30); }
@@ -759,11 +760,6 @@ export class RunnerGame {
     const target = this.routeGenerator?.scheduleJetpackLanding?.(flight.targetZ, this.nextSection);
     if (target == null) return flight;
     flight = this.jetpack.extendTarget(target);
-    // Ordinary flight uses the authored 18-unit section and normal following
-    // geometry. Keep the pre-existing turbo/headstart adapter outside this
-    // ordinary-flight reconstruction until its separate route flow is traced.
-    if (flight.headstart) this.routeGenerator.reserveJetpackLandingRunout?.(landingRunout(flight,
-      { ...this.config, distance: this.state.distance, levelSpeed: this.state.levelSpeed }));
     return flight;
   }
 

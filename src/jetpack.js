@@ -26,19 +26,6 @@ export const JETPACK = Object.freeze({
 const clamp01 = value => Math.max(0, Math.min(1, value));
 const smoothstep = value => { const t = clamp01(value); return t * t * (3 - 2 * t); };
 
-/** Browser clearance adapter, not a recovered native extra landing section.
- * Reserve for the speed at touchdown, including the level ramp during flight.
- * The two forward steps cover target overshoot and fixed-step handoff; ordinary
- * flight still ends at targetZ with zero vertical speed and normal gravity. */
-export function landingRunout(flight, { distance, levelSpeed, maximumSpeed, acceleration, gravity, fixedStep, playerRadius }) {
-  const height = flight.headstart ? HEADSTART[flight.headstartTier].height : JETPACK.height;
-  const fallSeconds = Math.sqrt(2 * height / gravity);
-  const remainingFlight = Math.max(0, flight.targetZ - distance) / flight.speed + fixedStep;
-  const endSpeed = flight.headstart ? maximumSpeed : Math.min(maximumSpeed,
-    levelSpeed + Math.max(0, acceleration) * (remainingFlight + fallSeconds + fixedStep));
-  return endSpeed * fallSeconds + playerRadius + (flight.speed + endSpeed) * fixedStep;
-}
-
 export class Jetpack {
   constructor({ tier = 0 } = {}) {
     if (!Number.isInteger(tier) || tier < 0 || tier >= JETPACK_SECONDS.length) throw new RangeError('Invalid jetpack upgrade tier');

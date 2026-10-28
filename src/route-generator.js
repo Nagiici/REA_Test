@@ -1,3 +1,4 @@
+import { RouteWork } from './route-worker.js';
 import { Matrix4, Quaternion, Vector3 } from 'three';
 import { SourceSpawnPointManager } from './source-spawn-points.js';
 
@@ -342,7 +343,6 @@ export class SourceRouteGenerator {
     this.pickerState = new Map();
     this.pendingJetpackLanding = null;
     this.forcedLandingSection = null;
-    this.landingSafetyPadding = null;
     this.spawnPointManager.reset();
   }
 
@@ -364,6 +364,11 @@ export class SourceRouteGenerator {
   }
 
   compileChunk(chunkId, context = {}) {
+    return new RouteWork(this.compileChunkWork(chunkId, () => context)).finish();
+  }
+
+  *compileChunkWork(chunkId, getContext) {
+    const context = getContext();
     const chunk = this.resolveChunk(chunkId);
     const startDistance = context.startDistance ?? 0;
     const nativeLength = chunk.verifiedChunkLength ?? chunk.length;
@@ -378,9 +383,12 @@ export class SourceRouteGenerator {
     const instance = this.createInstance(chunk, String(chunkId), false, result);
     instance.parentMatrix = matrix;
     const selectors = chunk.routeChunkFields?._selectors?.map(ref => ref.ref) ?? instance.selectors.map(item => item.script.id);
-    this.performSelections(instance, selectors, result);
-    this.activateTrackObjects(instance, result);
-    this.emitInstance(instance, matrix, { ...context, startDistance, speed: context.speed ?? 11 }, result);
+    yield this.performSelectionsWork(instance, selectors, result);
+    yield this.activateTrackObjectsWork(instance, result);
+    // Moving objects and speed-dependent curves sample activation time, not
+    // the earlier prefab spawn or build-enqueue frame.
+    const activationContext = getContext();
+    this.emitInstance(instance, matrix, { ...activationContext, startDistance, speed: activationContext.speed ?? 11 }, result);
     return result;
   }
 
@@ -393,7 +401,14 @@ export class SourceRouteGenerator {
   }
 
   buildPreparedChunk(plan, context) {
-    const result = this.compileChunk(plan.deferred.chunkId, { ...plan.deferred.context, ...context });
+    return new RouteWork(this.buildPreparedChunkWork(plan, () => context)).finish();
+  }
+
+  *buildPreparedChunkWork(plan, getContext) {
+    // yield* preserves the result while nested selection/activation iterators
+    // themselves are stepped by the worker stack.
+    const result = yield* this.compileChunkWork(plan.deferred.chunkId,
+      () => ({ ...plan.deferred.context, ...getContext() }));
     result.provenance = { ...result.provenance, ...plan.provenance };
     result.decisions.unshift(...plan.decisions);
     return result;
@@ -494,6 +509,10 @@ export class SourceRouteGenerator {
   }
 
   performSelections(instance, selectorIds, result) {
+    new RouteWork(this.performSelectionsWork(instance, selectorIds, result)).finish();
+  }
+
+  *performSelectionsWork(instance, selectorIds, result) {
     for (const id of selectorIds) {
       if (instance.visited.has(id)) continue;
       instance.visited.add(id);
@@ -534,7 +553,12 @@ export class SourceRouteGenerator {
         // selector cache. Non-Prefab fallback is handled separately as BFS.
         const hasPrefab = graph.nodes.some(n => n.scripts.some(s => s.class === 'PlaceholderPrefab'));
         const selectors = hasPrefab ? spawned.selectors : this.breadthFirstSelectors(spawned);
-        this.performSelections(spawned, selectors.map(item => item.script.id), result);
+        // PerformingSelection callbacks create the prefab before the native
+        // selected-object SetActive checkpoint, then recurse into its selectors.
+        yield;
+        yield this.performSelectionsWork(spawned, selectors.map(item => item.script.id), result);
+      } else {
+        for (const child of children) if (this.isNodeActive(instance, child)) yield;
       }
     }
   }
@@ -550,6 +574,10 @@ export class SourceRouteGenerator {
   }
 
   activateTrackObjects(instance, result) {
+    new RouteWork(this.activateTrackObjectsWork(instance, result)).finish();
+  }
+
+  *activateTrackObjectsWork(instance, result) {
     for (const node of instance.graph.nodes) {
       if (!this.isNodeActive(instance, String(node.id))) continue;
       const mirror = node.scripts.find(script => script.class === 'Mirror');
@@ -563,7 +591,10 @@ export class SourceRouteGenerator {
         }
         result.decisions.push({ type: 'Mirror', scope: instance.scope, nodeId: node.id, draw, sign, source: mirror.source });
       }
-      for (const spawned of instance.spawned.get(String(node.id)) ?? []) this.activateTrackObjects(spawned, result);
+      for (const spawned of instance.spawned.get(String(node.id)) ?? []) yield this.activateTrackObjectsWork(spawned, result);
+      if (mirror || node.scripts.some(script => script.class === 'TrackObject')) yield;
+      // Collision/visual extraction is committed atomically after this task;
+      // browser scene publication does not expose Unity partial activation.
     }
   }
 
@@ -769,26 +800,20 @@ export class SourceRouteGenerator {
    * Source landing grid/chunk is 180 native units. Already-built chunks stay
    * intact, and the current section's minimum length remains respected.
    */
-  scheduleJetpackLanding(requestedTarget, leadingEdge, landingRunout = 0) {
-    if (![requestedTarget, leadingEdge, landingRunout].every(Number.isFinite) || requestedTarget < 0 || leadingEdge < 0 || landingRunout < 0) throw new Error('Invalid Jetpack landing position');
+  scheduleJetpackLanding(requestedTarget, leadingEdge) {
+    if (![requestedTarget, leadingEdge].every(Number.isFinite) || requestedTarget < 0 || leadingEdge < 0) throw new Error('Invalid Jetpack landing position');
     const grid = 180 * this.unitScale;
     const sectionMinimum = this.minimumJetpackLandingZ;
     const align = value => Math.ceil((value - 1e-9) / grid) * grid;
     const target = align(Math.max(align(requestedTarget), leadingEdge, sectionMinimum));
     this.pendingJetpackLanding = { requestedTarget, target, leadingEdgeAtRequest: leadingEdge,
-      currentSectionMinimum: sectionMinimum, landingRunout, adapter: 'browser-queue-packing' };
+      currentSectionMinimum: sectionMinimum, adapter: 'browser-queue-packing' };
     return target;
   }
 
   get minimumJetpackLandingZ() {
     return this.currentSection
       ? this.currentSection.startDistance + this.currentSection.fields._lengthMin * this.unitScale : 0;
-  }
-
-  reserveJetpackLandingRunout(distance) {
-    if (!Number.isFinite(distance) || distance < 0) throw new Error('Invalid Jetpack landing runout');
-    if (!this.pendingJetpackLanding) throw new Error('No pending Jetpack landing');
-    this.pendingJetpackLanding.landingRunout = distance;
   }
 
   fallbackChunkId() {
@@ -829,31 +854,9 @@ export class SourceRouteGenerator {
     this.currentSection.phase = 3;
     this.forcedLandingSection = null;
     this.pendingJetpackLanding = null;
-    const blocks = Math.ceil(Math.max(0, request.landingRunout - chunk.length) / (180 * this.unitScale));
-    if (blocks) this.landingSafetyPadding = { ...request, remainingBlocks: blocks, blockCount: blocks,
-      nextStart: context.startDistance + chunk.length };
     // Resume the original section pools after this inserted transition. The
     // already-emitted part of the previous section is never rebuilt or removed.
     this.currentSection = null;
-    return chunk;
-  }
-
-  compileLandingSafetyPadding(context) {
-    const request = this.landingSafetyPadding;
-    if (Math.abs(context.startDistance - request.nextStart) > 1e-7) throw new Error('Landing safety padding must follow the source landing chunk');
-    const builder = this.settings.objects[this.settings.roots.defaultRoute].fields._defaultRouteBuilder;
-    const sectionId = builder._fallbackSection.ref, section = this.sectionObject(sectionId);
-    const chunk = this.prepareChunk(this.fallbackChunkId(), { ...context, sectionId, sectionFields: section.fields });
-    if (Math.abs(chunk.length - 180 * this.unitScale) > 1e-7) throw new Error('Landing safety filler must use an unmodified 180-unit source fallback');
-    chunk.provenance.sectionId = sectionId;
-    chunk.provenance.sectionName = section.name;
-    chunk.provenance.phase = 'landing-safety-padding';
-    if (context.deferBuild) chunk.section = { id: sectionId, fields: section.fields,
-      startDistance: context.startDistance, phase: 3 };
-    chunk.provenance.jetpackLanding = { ...request, kind: 'landing-safety-padding', adapter: 'browser-landing-runout' };
-    chunk.decisions.unshift({ type: 'LandingRunoutAdapter', ...chunk.provenance.jetpackLanding });
-    request.nextStart += chunk.length;
-    if (--request.remainingBlocks === 0) this.landingSafetyPadding = null;
     return chunk;
   }
 
@@ -900,7 +903,6 @@ export class SourceRouteGenerator {
   }
 
   nextChunk(context) {
-    if (this.landingSafetyPadding) return this.compileLandingSafetyPadding(context);
     const decisions = [];
     const landing = this.pendingJetpackLanding;
     if (landing) {
