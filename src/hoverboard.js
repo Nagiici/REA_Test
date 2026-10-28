@@ -1,10 +1,12 @@
 /**
  * Classic/default-board native fallback, in original Unity distance units.
- * Evidence: analysis/flight/hoverboard/findings.json and disassembly/605.asm.
+ * Evidence: analysis/flight/hoverboard/disassembly/605.asm and
+ * analysis/classic/board-v13 (GameStats20975/20977, PlayerInfo21971).
  * Account inventory, rendering, route hiding and Character.Revive are adapters.
  */
 export const HOVERBOARD_SOURCE = Object.freeze({
   duration: 30,
+  cooldownSeconds: 5,
   crashParticleDelay: 0.14000000059604645,
   obstacleClearDistance: 250,
   cooldownDistance: 116,
@@ -16,20 +18,18 @@ export const HOVERBOARD_SOURCE = Object.freeze({
 // Explicit browser policy: these are not recovered account values/native fixes.
 export const HOVERBOARD_BROWSER_ADAPTER = Object.freeze({
   inventory: 3,
-  rearmPolicy: 'distance-repair',
 });
 
 /**
- * source-latched preserves the recovered native cooldown flag: the coroutine
- * sets it at either ending and never clears it; HardReset clears it.
- * distance-repair is an opt-in browser fix: natural expiry can rearm, and a
- * crash rearms after the source 116 * speedNormalized distance has elapsed.
+ * The modifier's recovery coroutine does not own reactivation. GameStats keeps
+ * the expired type-1 powerup, including negative timeLeft, until it reaches
+ * -(WaitForParticlesDelay + GetHoverBoardCoolDown()), then calls HardReset.
+ * Jetpack pauses that timer even when it is already negative.
  */
 export class Hoverboard {
-  constructor({ inventory = 3, rearmPolicy = 'source-latched', duration = HOVERBOARD_SOURCE.duration } = {}) {
-    if (!['source-latched', 'distance-repair'].includes(rearmPolicy)) throw new Error('Unknown hoverboard rearm policy');
+  constructor({ inventory = 3, duration = HOVERBOARD_SOURCE.duration } = {}) {
     if (!Number.isInteger(inventory) || inventory < 0 || !Number.isFinite(duration) || duration <= 0) throw new Error('Invalid hoverboard configuration');
-    this.options = { inventory, rearmPolicy, duration };
+    this.options = { inventory, duration };
     this.reset();
   }
 
@@ -37,7 +37,7 @@ export class Hoverboard {
     if (!Number.isInteger(inventory) || inventory < 0) throw new Error('Invalid local inventory');
     this.state = { inventory, active: false, flying: false, timeLeft: 0,
       cooldownBlocked: false, cooldownRemainingNative: 0, recoveryRemainingNative: 0,
-      crashDelay: 0, crashPending: false, speedNormalizedAtHit: 1, deathGuardRemaining: 0 };
+      crashDelay: 0, crashPending: false, deathGuardRemaining: 0 };
   }
 
   get visible() { return this.state.active && !this.state.flying; }
@@ -53,14 +53,14 @@ export class Hoverboard {
   }
 
   /** Called when the game's fatal-hit path would call Game.Die. */
-  hit({ speedNormalized = 1, flying = this.state.flying } = {}) {
+  hit({ flying = this.state.flying } = {}) {
     if (flying || !this.protects) return false;
     // Game.Die suppresses another call for .4 s, independently of board state.
     if (this.state.deathGuardRemaining > 0) return true;
-    if (!Number.isFinite(speedNormalized) || speedNormalized <= 0) throw new Error('Invalid normalized speed');
+    // RemoveHoverBoardPowerup20977 sets timeLeft to zero without removing it.
     Object.assign(this.state, { active: false, timeLeft: 0, cooldownBlocked: true,
       crashPending: true, crashDelay: HOVERBOARD_SOURCE.crashParticleDelay,
-      speedNormalizedAtHit: speedNormalized, deathGuardRemaining: HOVERBOARD_SOURCE.repeatedDeathGuard });
+      deathGuardRemaining: HOVERBOARD_SOURCE.repeatedDeathGuard });
     return true;
   }
 
@@ -69,8 +69,9 @@ export class Hoverboard {
    * Returns [{type:'clearObstacles',distanceNative}, {type:'revive',jumpHeightNative}]
    * once after a crash; the caller implements geometry/physics and presentation.
    */
-  step(dt, { levelSpeed = 0, pausedForFlight = false } = {}) {
-    if (!Number.isFinite(dt) || dt < 0 || !Number.isFinite(levelSpeed) || levelSpeed < 0) throw new Error('Invalid hoverboard step');
+  step(dt, { levelSpeed = 0, speedNormalized = 1, pausedForFlight = false } = {}) {
+    if (!Number.isFinite(dt) || dt < 0 || !Number.isFinite(levelSpeed) || levelSpeed < 0
+      || !Number.isFinite(speedNormalized) || speedNormalized < 0) throw new Error('Invalid hoverboard step');
     const s = this.state, events = [];
     s.flying = pausedForFlight;
     s.deathGuardRemaining = Math.max(0, s.deathGuardRemaining - dt);
@@ -78,38 +79,36 @@ export class Hoverboard {
     // type 1's timer. Resume leaves the existing board and inventory intact.
     if (pausedForFlight) return events;
     if (s.active) {
-      s.timeLeft = Math.max(0, s.timeLeft - dt);
-      if (s.timeLeft === 0) {
+      s.timeLeft -= dt;
+      if (s.timeLeft <= 0) {
         s.active = false;
-        s.cooldownBlocked = this.options.rearmPolicy === 'source-latched';
+        s.cooldownBlocked = true;
         events.push({ type: 'expired' });
       }
-      return events;
-    }
+    } else if (s.cooldownBlocked) s.timeLeft -= dt;
     let recoveryDt = dt;
     if (s.crashPending) {
       recoveryDt = Math.max(0, dt - s.crashDelay);
       s.crashDelay = Math.max(0, s.crashDelay - dt);
       if (s.crashDelay > 0) return events;
       s.crashPending = false;
-      const scale = s.speedNormalizedAtHit;
+      // Begin605 samples current character speed AFTER the particle wait.
+      const scale = speedNormalized;
       s.cooldownRemainingNative = HOVERBOARD_SOURCE.cooldownDistance * scale;
       s.recoveryRemainingNative = HOVERBOARD_SOURCE.recoveryDistance * scale;
       events.push({ type: 'clearObstacles', distanceNative: HOVERBOARD_SOURCE.obstacleClearDistance * scale });
       events.push({ type: 'revive', jumpHeightNative: HOVERBOARD_SOURCE.reviveJumpHeight });
     }
     if (s.cooldownBlocked) {
-      // Native iterates only while recoveryRemaining > 0. The opt-in browser
-      // policy extends distance accounting until the cooldown distance is used.
-      const sourceOnly = this.options.rearmPolicy === 'source-latched';
-      const travelled = sourceOnly
-        ? Math.min(levelSpeed * recoveryDt, s.recoveryRemainingNative)
-        : levelSpeed * recoveryDt;
+      // These distances describe the crash effect's coroutine, not eligibility.
+      const travelled = Math.min(levelSpeed * recoveryDt, s.recoveryRemainingNative);
       s.recoveryRemainingNative = Math.max(0, s.recoveryRemainingNative - travelled);
       s.cooldownRemainingNative = Math.max(0, s.cooldownRemainingNative - travelled);
-      if (!sourceOnly && s.cooldownRemainingNative <= 1e-9) {
+      const threshold = Math.fround(HOVERBOARD_SOURCE.cooldownSeconds + HOVERBOARD_SOURCE.crashParticleDelay);
+      if (s.timeLeft <= -threshold) {
         s.cooldownBlocked = false;
-        events.push({ type: 'rearmed', policy: 'distance-repair' });
+        s.timeLeft = 0; s.cooldownRemainingNative = 0; s.recoveryRemainingNative = 0;
+        events.push({ type: 'rearmed', policy: 'source-timer' });
       }
     }
     return events;

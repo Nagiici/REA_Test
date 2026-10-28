@@ -1,0 +1,16 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>经典模式 · 滑板恢复验证</title>
+<style>body{margin:0;background:#123839;color:#edf3da;font:14px system-ui}iframe{display:block;border:0;width:100%;height:calc(100dvh - 125px)}nav{display:flex;flex-wrap:wrap;gap:8px;padding:10px}button{padding:8px;border:0;border-radius:6px;background:#e9efce;color:#143e3c}output{display:block;white-space:pre-wrap;padding:0 12px}</style>
+<iframe src="/scripts/classic-v9-game.html" title="经典模式场景"></iframe>
+<nav><button id="expiry">自然到期</button><button id="crash">撞毁后5秒</button><button id="ready">再过0.15秒并使用</button><button id="flight">冷却中起飞</button><button id="stumble">绊倒后起飞</button></nav><output>等待资源…</output>
+<script type="module">
+const f=document.querySelector('iframe'),out=document.querySelector('output');let r,route,label='准备',history=[],id=400000;
+function reset(){history=[];const g=r.game;g.routeGenerator=route;g.reset();g.routeGenerator=null;g.entities=g.entities.filter(e=>e.type==='decoration');g.entities.forEach(e=>e.id=id++);g.nextId=id;g.nextSection=1e9;const opts=g.introOptions;g.introOptions=null;g.start();g.introOptions=opts;g.state.distance=10;return g;}
+function run(g,seconds){if(g.state.phase==='paused')g.pause();for(let i=0;i<Math.round(seconds*120);i++){g.advance(1/120);if(!g.state.flight)g.state.distance=10;}g.pause();r.cameraController.reset({characterPosition:[g.state.player.x,g.state.player.y,g.state.distance]});}
+function use(g,action){if(g.state.phase==='paused')g.pause();const ok=g.action(action);g.pause();return ok;}
+setInterval(()=>{if(!r&&f.contentWindow.__runner?.ready){r=f.contentWindow.__runner;route=r.game.routeGenerator;const drain=r.game.drainEvents.bind(r.game);r.game.drainEvents=()=>{const events=drain();history.push(...events.map(e=>e.type));history=history.slice(-14);return events;};}if(!r)return;const g=r.game,s=g.state,b=s.board;f.contentDocument.querySelector('#menu').style.visibility=s.phase==='paused'?'hidden':'';out.textContent=`${label} · 滑板 ${b.active?'使用中':b.cooldownBlocked?'冷却中':'可使用'} · 库存 ${b.inventory}\n有符号计时 ${b.timeLeft.toFixed(4)} 秒 · 飞行 ${!!s.flight} · 绊倒 ${s.stumble.isStumbling} · 待处理死亡 ${s.stumble.hasPendingDeath}\n${history.join(' → ')} · 游戏错误 ${r.errors.join('|')||0}`;},40);
+document.querySelector('#expiry').onclick=()=>{const g=reset();g.action('board');run(g,30.01);label='自然到期不能立即使用';};
+document.querySelector('#crash').onclick=()=>{const g=reset();g.action('board');g.protectWithBoard();run(g,5);label='撞毁后5秒仍处于冷却';};
+document.querySelector('#ready').onclick=()=>{const g=r.game;run(g,.15);label=`继续0.15秒，激活结果 ${use(g,'board')}`;};
+document.querySelector('#flight').onclick=()=>{const g=reset();g.action('board');g.protectWithBoard();run(g,1);g.pause();g.activatePowerup('jetpack');run(g,2);label='负冷却在喷气背包期间冻结在-1秒';};
+document.querySelector('#stumble').onclick=()=>{const g=reset();g.stumble('stumble_left');g.stumble('stumble_right');g.activatePowerup('jetpack');run(g,.3);label='起飞清除绊倒，待处理死亡经过飞行检查后消退';};
+</script></html>

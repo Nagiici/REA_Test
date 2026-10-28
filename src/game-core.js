@@ -456,7 +456,8 @@ export class RunnerGame {
       } else { s.flight = flight; s.powerups.jetpack = Math.max(0, flight.timeLeft); }
     }
     s.speed = s.flight ? s.flight.speed : s.levelSpeed;
-    for (const event of this.hoverboard.step(dt, { levelSpeed: s.levelSpeed / 0.1, pausedForFlight: !!s.flight })) {
+    for (const event of this.hoverboard.step(dt, { levelSpeed: s.levelSpeed / 0.1,
+      speedNormalized: s.speed / (c.initialSpeed || DEFAULT_CONFIG.initialSpeed), pausedForFlight: !!s.flight })) {
       if (event.type === 'clearObstacles') {
         const end = s.distance + event.distanceNative * 0.1;
         this.clearObstacles(s.distance - 2, end);
@@ -712,7 +713,7 @@ export class RunnerGame {
 
   protectWithBoard() {
     const active = this.hoverboard.state.active;
-    const protectedHit = this.hoverboard.hit({ speedNormalized: this.state.speed / 11, flying: !!this.state.flight });
+    const protectedHit = this.hoverboard.hit({ flying: !!this.state.flight });
     if (protectedHit && active) this.events.push({ type: 'board-hit' });
     return protectedHit;
   }
@@ -747,6 +748,9 @@ export class RunnerGame {
     if (target != null) flight = this.jetpack.extendTarget(target);
     s.flight = flight; s.speed = flight.speed; s.powerups.jetpack = flight.timeLeft;
     this.endRoll('jetpack');
+    // JetpackState.Begin82464 calls Character.StopStumble81957. Keep pending
+    // death coroutines: their existing flight-state recheck owns cancellation.
+    if (this.collisionState.isStumbling) s.stumble = this.collisionState.stopStumble();
     p.sneakersJump = null; p.grounded = false; p.motionGrounded = false; p.velocityY = 0;
     this.hoverboard.state.flying = true;
     if (headstart) this.placeHeadstartRewards(flight);

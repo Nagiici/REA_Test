@@ -26,12 +26,13 @@ test('flight coins can be collected on their source height and flight ends at ta
   frames(g,1);assert.equal(g.state.player.y,0);
 });
 
-test('board absorbs one fatal hit, clears upcoming hazards and rearms by distance without freezing roll',()=>{
+test('board absorbs one fatal hit, clears upcoming hazards and waits for source cooldown without freezing roll',()=>{
   const g=emptyGame();g.action('board');g.addEntity({type:'barrier',lane:1,distance:2});
   g.addEntity({type:'train',lane:1,distance:16});frames(g,.35);
   assert.equal(g.state.phase,'running');assert.equal(g.state.board.active,false);assert.equal(g.state.board.inventory,2);
   assert.equal(g.entities.filter(e=>e.type==='train').length,0);assert.ok(g.state.player.velocityY>0);
-  assert.equal(g.action('board'),false);frames(g,1.2);assert.equal(g.action('board'),true);
+  assert.equal(g.action('board'),false);frames(g,1.2);assert.equal(g.action('board'),false);
+  frames(g,4);assert.equal(g.action('board'),true);
   let accepted=0;for(let i=0;i<30;i++){if(g.action('roll'))accepted++;frames(g,.1);}assert.equal(g.state.phase,'running');assert.ok(accepted>=4);assert.ok(accepted<30);
   frames(g,1);assert.equal(g.state.player.rollRemaining,0);
 });
@@ -58,4 +59,21 @@ test('board clearing removes source train visuals with their collision group, pr
   const coin=g.addEntity({type:'coin',x:0,y:1,distance:6,provenance:p});
   g.clearObstacles(0,25);
   assert.ok(!g.entities.includes(near));assert.ok(g.entities.includes(later));assert.ok(g.entities.includes(scenery));assert.ok(g.entities.includes(coin));
+});
+
+test('Jetpack entry stops active stumble immediately but pending death still completes its flight recheck',()=>{
+ const g=emptyGame();g.stumble('stumble_left');g.stumble('stumble_right');
+ assert.equal(g.state.stumble.isStumbling,true);assert.equal(g.collisionState.hasPendingDeath,true);
+ g.activatePowerup('jetpack');assert.equal(g.state.stumble.isStumbling,false);
+ assert.equal(g.state.stumble.timeLeft,0);assert.equal(g.collisionState.hasPendingDeath,true);
+ frames(g,.3);assert.equal(g.state.phase,'running');assert.equal(g.collisionState.hasPendingDeath,false);
+});
+
+test('game pause and Jetpack freeze board cooldown; no inventory is consumed by rejected activation',()=>{
+ const g=emptyGame();g.action('board');g.protectWithBoard();frames(g,1);
+ const time=g.state.board.timeLeft;g.pause();frames(g,10);assert.equal(g.state.board.timeLeft,time);g.pause();
+ g.activatePowerup('jetpack');frames(g,2);assert.equal(g.state.board.timeLeft,time);assert.equal(g.action('board'),false);
+ while(g.state.flight)g.advance(1/120);
+ assert.equal(g.action('board'),false);frames(g,4.3);assert.equal(g.action('board'),true);
+ assert.equal(g.state.board.inventory,1);
 });
