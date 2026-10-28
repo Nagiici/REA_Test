@@ -16,7 +16,7 @@ export class ClassicRouteQueue {
   }
   reset() {
     this.spawnedEdge = this.builtEdge = this.readyEdge = this.source.initialDistance;
-    this.worker.reset(); this.completed = []; this.context = null;
+    this.worker.reset(); this.completed = []; this.activations = []; this.retirements = []; this.context = null;
     this.chunks = []; this.sections = []; this.directives = []; this.events = [];
     this.nextId = 0;
   }
@@ -60,7 +60,7 @@ export class ClassicRouteQueue {
   }
 
   update(context, { prime = false } = {}) {
-    const emitted = []; this.context = context;
+    const emitted = []; this.context = context; this.activations = []; this.retirements = [];
     // Menu/loading runs this update repeatedly before input is available.
     do {
       while (this.pendingJetpackLanding && this.pendingJetpackLanding.target < this.spawnedEdge - EPS) {
@@ -94,19 +94,22 @@ export class ClassicRouteQueue {
         this.builtEdge = chunk.endDistance;
         const builtAtPlayerDistance = context.playerDistance;
         this.worker.enqueue('spawn', chunk,
-          this.source.buildPreparedChunkWork(chunk.plan, () => this.context), built => {
+          this.source.buildPreparedChunkWork(chunk.plan, () => ({ ...this.context, deferCoins: true, routeChunkId: chunk.id, endDistance: chunk.endDistance }), batch => {
+            this.publishActivation(chunk, batch.entities, batch.trackObject);
+          }), built => {
             built.provenance.queue = { id: chunk.id, startDistance: chunk.startDistance,
               builtAtPlayerDistance, readyAtPlayerDistance: this.context.playerDistance, mode: 'Normal' };
             chunk.ready = true; this.readyEdge = chunk.endDistance;
-            this.completed.push(this.decorate(built, { ...this.context, startDistance: chunk.startDistance }));
+            const before = built.entities.length;
+            const decorated = this.decorate(built, { ...this.context, startDistance: chunk.startDistance });
+            this.publishActivation(chunk, decorated.entities.slice(before), 'environment');
+            this.completed.push(decorated);
           });
       }
 
       while (this.chunks[0]?.built && this.chunks[0].endDistance + CLASSIC_ROUTE_QUEUE.despawnBehind < context.playerDistance) {
         const chunk = this.chunks.shift();
-        // Browser meshes/entities have their own distance-based lifetime; this
-        // coroutine releases the queue descriptor (there are no Unity pools).
-        this.worker.enqueue('despawn', chunk, (function* () { chunk.plan = null; yield; })());
+        this.worker.enqueue('despawn', chunk, this.retireChunk(chunk));
       }
       const active = new Set(this.chunks.map(chunk => chunk.sectionRecord));
       this.sections = this.sections.filter((section, i) => active.has(section) || i === this.sections.length - 1);
@@ -116,6 +119,29 @@ export class ClassicRouteQueue {
     // Bounded diagnostics; source queue itself retains only live chunks.
     if (this.events.length > 128) this.events.splice(0, this.events.length - 128);
     return emitted;
+  }
+
+  publishActivation(chunk, entities, trackObject) {
+    const activation = { key: `${chunk.id}:${trackObject ?? 'static'}`, chunkId: chunk.id, startDistance: chunk.startDistance,
+      endDistance: chunk.endDistance, trackObject, sequence: chunk.activationCount ?? 0,
+      playerDistance: this.context.playerDistance };
+    chunk.activationCount = activation.sequence + 1;
+    (chunk.groups ??= []).push(activation);
+    for (const entity of entities) entity.routeActivation = activation;
+    this.activations.push(...entities);
+  }
+
+  drainActivations() { return this.activations.splice(0); }
+  drainRetirements() { return this.retirements.splice(0); }
+  *retireChunk(chunk) {
+    // Deactivate one top-level callback group per worker checkpoint; the
+    // renderer receives matching removals for both its model and colliders.
+    for (const group of chunk.groups ?? []) {
+      this.source.coinRows.retireActivation(group.key);
+      this.retirements.push(group.key);
+      yield;
+    }
+    chunk.groups = []; chunk.plan = null;
   }
 
   registerSection(section, startDistance) {

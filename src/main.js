@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { RunnerGame } from './game-core.js';
 import { loadRecoveredPack, characterFromGLB, loadYellowCharacter, loadRedNoseChaser } from './asset-adapter.js';
 import { createEntityVisual } from './entity-visuals.js';
+import { EntityVisualPool } from './entity-visual-pool.js';
 import { SourceRouteGenerator } from './route-generator.js';
 import { EnvironmentRouteGenerator } from './environment-layout.js';
 import { POWERUP_NAMES, POWERUP_SECONDS } from './powerups.js';
@@ -70,6 +71,8 @@ const ballast = mesh(new THREE.PlaneGeometry(8.6, 240), 0x727e76);
 ballast.rotation.x = -Math.PI / 2; ballast.position.set(0, -0.06, -65); ballast.castShadow = false;
 const entityRoot = new THREE.Group(); scene.add(entityRoot);
 const entityObjects = new Map();
+const entityVisualPool = new EntityVisualPool(entity => createEntityVisual(entity, pack));
+let renderedRun = null;
 let playerMotion = new PlayerMotion(), gameAudio = new ClassicAudio(null);
 let pack = null, character = null, chasers = null, loaded = false, previousPhase = 'ready', previousCatch = false, previousTime = performance.now();
 let best = 0;
@@ -79,11 +82,16 @@ $('best').textContent = Math.floor(best).toLocaleString();
 $('start').disabled = true; $('start-label').textContent = '准备角色…';
 
 function updateEntities(time) {
+  if (renderedRun !== game.state) {
+    for (const object of entityObjects.values()) entityVisualPool.release(object);
+    entityObjects.clear(); renderedRun = game.state;
+  }
   const ids = new Set();
   for (const entity of game.entities) {
+    if (entity.visual === null) continue;
     ids.add(entity.id);
     let object = entityObjects.get(entity.id);
-    if (!object) { object = createEntityVisual(entity, pack); entityObjects.set(entity.id, object); entityRoot.add(object); }
+    if (!object) { object = entityVisualPool.acquire(entity); entityObjects.set(entity.id, object); entityRoot.add(object); }
     object.visible = !entity.collected;
     object.position.set(entity.x ?? (entity.lane - 1) * game.config.laneSpacing, entity.type === 'coin' && !entity.visual ? entity.y ?? 1.1 : 0, -(entity.distance - game.state.distance));
     if (entity.type === 'coin') {
@@ -97,7 +105,7 @@ function updateEntities(time) {
       if (rotation) node.rotation.y = time * rotation.speed * Math.PI / 180 + rotation.phase;
     });
   }
-  for (const [id, object] of entityObjects) if (!ids.has(id)) { entityRoot.remove(object); entityObjects.delete(id); }
+  for (const [id, object] of entityObjects) if (!ids.has(id)) { entityVisualPool.release(object); entityObjects.delete(id); }
 }
 
 function installCharacter(next) {
@@ -129,7 +137,7 @@ function installCharacter(next) {
   window.__runner.character = character;
 }
 
-window.__runner = { game, renderer, scene, camera, cameraController, cameraVolumes, tunnelModifiers, pack: null, character: null, ready: false, errors: [],
+window.__runner = { game, entityVisualPool, entityObjects, renderer, scene, camera, cameraController, cameraVolumes, tunnelModifiers, pack: null, character: null, ready: false, errors: [],
   snapshot: () => ({ phase: game.state.phase, distance: game.state.distance, player: { ...game.state.player }, entities: game.entities.length, character: character?.name, animations: character?.animationNames, drawCalls: renderer.info.render.calls }),
 };
 
@@ -169,7 +177,7 @@ function start() {
   if (!loaded || game.state.phase !== 'paused' && (game.state.catchRemaining > 0 || game.state.deathGrounding)) return;
   if (game.state.phase === 'paused') game.pause();
   else {
-    if (game.state.phase === 'gameover') { for (const object of entityObjects.values()) entityRoot.remove(object); entityObjects.clear(); }
+    if (game.state.phase === 'gameover') { for (const object of entityObjects.values()) entityVisualPool.release(object); entityObjects.clear(); }
     const fov = classicCameraFov(camera.aspect);
     game.introOptions = { introDuration: pack.manifest.introAnimationAdditions.clips.intro_run.duration,
       startFov: fov.menu, runningFov: fov.runningField, aspect: camera.aspect };

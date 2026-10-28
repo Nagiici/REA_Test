@@ -1,3 +1,4 @@
+import { CurveCoinQueue } from './curve-coin-queue.js';
 import { RouteWork } from './route-worker.js';
 import { Matrix4, Quaternion, Vector3 } from 'three';
 import { SourceSpawnPointManager } from './source-spawn-points.js';
@@ -133,6 +134,13 @@ export function colliderShape(collider, nativeMatrix, anchor, unitScale = 0.1) {
   }
   if (Number.isFinite(collider.m_Radius) && Number.isFinite(collider.m_Height)) return { type: 'capsule', rows, radius: collider.m_Radius, halfSegment: Math.max(0, collider.m_Height / 2 - collider.m_Radius), axis: collider.m_Direction ?? 1 };
   throw new Error('Unsupported source collider shape');
+}
+
+// Mirror.Awake reuses an existing sibling TrackObject, adding one only when
+// missing. Mirror is a MonoBehaviour, not a TrackObject subclass.
+function runtimeTrackObject(node) {
+  return node.scripts.find(script => script.class === 'TrackObject')
+    ?? node.scripts.find(script => script.class === 'Mirror');
 }
 
 export function indexGraph(graph) {
@@ -344,6 +352,7 @@ export class SourceRouteGenerator {
     this.pendingJetpackLanding = null;
     this.forcedLandingSection = null;
     this.spawnPointManager.reset();
+    this.coinRows = new CurveCoinQueue();
   }
 
   resolveChunk(chunkId) {
@@ -367,7 +376,7 @@ export class SourceRouteGenerator {
     return new RouteWork(this.compileChunkWork(chunkId, () => context)).finish();
   }
 
-  *compileChunkWork(chunkId, getContext) {
+  *compileChunkWork(chunkId, getContext, onActivation = () => {}) {
     const context = getContext();
     const chunk = this.resolveChunk(chunkId);
     const startDistance = context.startDistance ?? 0;
@@ -384,11 +393,26 @@ export class SourceRouteGenerator {
     instance.parentMatrix = matrix;
     const selectors = chunk.routeChunkFields?._selectors?.map(ref => ref.ref) ?? instance.selectors.map(item => item.script.id);
     yield this.performSelectionsWork(instance, selectors, result);
-    yield this.activateTrackObjectsWork(instance, result);
-    // Moving objects and speed-dependent curves sample activation time, not
-    // the earlier prefab spawn or build-enqueue frame.
-    const activationContext = getContext();
-    this.emitInstance(instance, matrix, { ...activationContext, startDistance, speed: activationContext.speed ?? 11 }, result);
+    // RouteChunk caches top-level TrackObjects in hierarchy order. A
+    // Placeholder activation calls its entire cached prefab hierarchy inline;
+    // the route worker yields only after that callback chain has completed.
+    const publish = (trackObject, activate) => {
+      if (activate) this.activateTrackObject(instance, trackObject.node, result);
+      const live = getContext(), before = result.entities.length;
+      this.emitInstance(instance, matrix, { ...live, startDistance, speed: live.speed ?? 11,
+        onlyTrackObject: trackObject?.script.id ?? null, filterTrackOwnership: true,
+        activationKey: `${live.routeChunkId}:${trackObject?.script.id ?? 'static'}` }, result);
+      const entities = result.entities.slice(before);
+      onActivation({ entities, trackObject: trackObject?.script.id ?? null,
+        scope: instance.scope, playerDistance: live.playerDistance ?? 0 });
+    };
+    // Selected static nodes with no TrackObject are already GameObject-active.
+    publish(null, false);
+    for (const trackObject of instance.trackObjects) {
+      if (!this.isNodeActive(instance, String(trackObject.node.id))) continue;
+      publish(trackObject, true);
+      yield;
+    }
     return result;
   }
 
@@ -404,11 +428,11 @@ export class SourceRouteGenerator {
     return new RouteWork(this.buildPreparedChunkWork(plan, () => context)).finish();
   }
 
-  *buildPreparedChunkWork(plan, getContext) {
+  *buildPreparedChunkWork(plan, getContext, onActivation) {
     // yield* preserves the result while nested selection/activation iterators
     // themselves are stepped by the worker stack.
     const result = yield* this.compileChunkWork(plan.deferred.chunkId,
-      () => ({ ...plan.deferred.context, ...getContext() }));
+      () => ({ ...plan.deferred.context, ...getContext() }), onActivation);
     result.provenance = { ...result.provenance, ...plan.provenance };
     result.decisions.unshift(...plan.decisions);
     return result;
@@ -417,17 +441,24 @@ export class SourceRouteGenerator {
   createInstance(graph, scope, prefab, result, depth = 0) {
     if (depth > 30) throw new Error(`Recursive source prefab cycle: ${scope}`);
     const indexed = indexGraph(graph);
-    const instance = { graph, scope, prefab, depth, indexed, parentMatrix: IDENTITY, active: new Map(), positions: new Map(), spawned: new Map(), powerups: new Map(), initialized: new Set(), visited: new Set(), selectors: [], result };
+    const instance = { graph, scope, prefab, depth, indexed, parentMatrix: IDENTITY, active: new Map(), positions: new Map(), spawned: new Map(), powerups: new Map(), initialized: new Set(), visited: new Set(), selectors: [], trackObjects: [], activated: new Set(), result };
     for (const node of graph.nodes) instance.active.set(String(node.id), node.active !== false || prefab && indexed.roots.includes(String(node.id)));
     const collect = id => {
       const node = indexed.nodes.get(id);
       for (const script of node.scripts ?? []) if (['Selector', 'Randomizer', 'SpawnPoint'].includes(script.class)) instance.selectors.push({ node, script });
+      // Mirror.Awake27095 adds a missing TrackObject at runtime.
+      const track = runtimeTrackObject(node);
+      if (track) instance.trackObjects.push({ node, script: track });
       for (const child of indexed.children.get(id)) collect(child);
     };
     for (const root of indexed.roots) collect(root);
     if (graph.initializationDerived?.selectorRefs) {
       const order = graph.initializationDerived.selectorRefs;
       instance.selectors.sort((a, b) => order.indexOf(a.script.id) - order.indexOf(b.script.id));
+    }
+    if (graph.initializationDerived?.trackObjectRefs) {
+      const order = graph.initializationDerived.trackObjectRefs;
+      instance.trackObjects.sort((a,b) => order.indexOf(a.script.id) - order.indexOf(b.script.id));
     }
     // Timing 0=Awake, 1=Start. Both occur before route content is played;
     // these source components only toggle their own GameObject and consume no RNG.
@@ -578,24 +609,41 @@ export class SourceRouteGenerator {
   }
 
   *activateTrackObjectsWork(instance, result) {
-    for (const node of instance.graph.nodes) {
+    for (const {node} of instance.trackObjects) {
       if (!this.isNodeActive(instance, String(node.id))) continue;
-      const mirror = node.scripts.find(script => script.class === 'Mirror');
-      if (mirror) {
-        const draw = this.random(), sign = Math.floor(draw * 2) * 2 - 1;
-        for (const childId of instance.indexed.children.get(String(node.id))) {
-          const child = instance.indexed.nodes.get(childId), key = `${instance.scope}/${node.id}/${childId}`;
-          const position = [...(instance.positions.get(childId) ?? child.position)];
-          position[0] = (this.mirrorState.get(key) ?? position[0]) * sign;
-          instance.positions.set(childId, position); this.mirrorState.set(key, position[0]);
-        }
-        result.decisions.push({ type: 'Mirror', scope: instance.scope, nodeId: node.id, draw, sign, source: mirror.source });
-      }
-      for (const spawned of instance.spawned.get(String(node.id)) ?? []) yield this.activateTrackObjectsWork(spawned, result);
-      if (mirror || node.scripts.some(script => script.class === 'TrackObject')) yield;
-      // Collision/visual extraction is committed atomically after this task;
-      // browser scene publication does not expose Unity partial activation.
+      this.activateTrackObject(instance, node, result);
+      yield;
     }
+  }
+
+  activateTrackObject(instance, node, result) {
+    const id = String(node.id);
+    if (instance.activated.has(id)) return;
+    const mirror = node.scripts.find(script => script.class === 'Mirror');
+    if (mirror) {
+      const draw = this.random(), sign = Math.floor(draw * 2) * 2 - 1;
+      for (const childId of instance.indexed.children.get(id)) {
+        const child = instance.indexed.nodes.get(childId), key = `${instance.scope}/${node.id}/${childId}`;
+        const position = [...(instance.positions.get(childId) ?? child.position)];
+        position[0] = (this.mirrorState.get(key) ?? position[0]) * sign;
+        instance.positions.set(childId, position); this.mirrorState.set(key, position[0]);
+      }
+      result.decisions.push({ type: 'Mirror', scope: instance.scope, nodeId: node.id, draw, sign, source: mirror.source });
+    }
+    // Placeholder.Activate81525 invokes child TrackObjects synchronously.
+    for (const spawned of instance.spawned.get(id) ?? []) {
+      for (const item of spawned.trackObjects) if (this.isNodeActive(spawned, String(item.node.id)))
+        this.activateTrackObject(spawned, item.node, result);
+    }
+    instance.activated.add(id);
+  }
+
+  trackOwner(instance, node) {
+    for (let current = node; current; current = instance.indexed.nodes.get(String(current.parentId))) {
+      const track = runtimeTrackObject(current);
+      if (track) return track.id;
+    }
+    return null;
   }
 
   emitInstance(instance, parentMatrix, context, result) {
@@ -611,6 +659,7 @@ export class SourceRouteGenerator {
       },
       visit: ({ node, matrix, path }) => {
         matrices.set(String(node.id), matrix);
+        if (context.filterTrackOwnership && this.trackOwner(instance, node) !== context.onlyTrackObject) return;
         const inheritedMotion = motions.get(String(node.id)) ?? motions.get(String(node.parentId)) ?? context.motion;
         if (inheritedMotion) motions.set(String(node.id), inheritedMotion);
         const moving = node.scripts?.find(script => script.class === 'MovingTrain');
@@ -684,7 +733,7 @@ export class SourceRouteGenerator {
         }
         const coinCurve = node.scripts?.find(script => script.class === 'CoinCurve');
         if (coinCurve) deferredCoins.push({ node, script: coinCurve, matrix, provenance, motion: inheritedMotion });
-        for (const spawned of instance.spawned.get(String(node.id)) ?? []) this.emitInstance(spawned, matrix, { ...context, motion: inheritedMotion, trainSpeedRatio: spawned.trainSpeedRatio ?? context.trainSpeedRatio }, result);
+        for (const spawned of instance.spawned.get(String(node.id)) ?? []) this.emitInstance(spawned, matrix, { ...context, filterTrackOwnership: false, motion: inheritedMotion, trainSpeedRatio: spawned.trainSpeedRatio ?? context.trainSpeedRatio }, result);
         const bindingKey = graph.id ?? (graph.source?.asset && (graph.source?.pathId ?? graph.source?.path_id) ? `${graph.source.asset}:${graph.source.pathId ?? graph.source.path_id}` : null);
         const binding = graph.visualBinding ?? graph.modelBinding ?? this.library.modelBindings?.byDefinitionRef?.[bindingKey];
         if (binding && node.parentId == null) {
@@ -711,7 +760,7 @@ export class SourceRouteGenerator {
     const cachedCurve = curveScript?.decodedFields?._cachedCurve;
     const curve = cachedCurve && initializeCoinCurve(cachedCurve);
     const curveMatrix = curveNode && matrices.get(String(curveNode.id));
-    const nativeSpeed = context.speed / this.unitScale;
+    const nativeSpeed = (context.levelSpeed ?? context.speed) / this.unitScale;
     const speedScale = fields._scaleMode === 0 ? 1 : nativeSpeed / 110;
     const spacing = coinSpacingAtSpeed(fields, nativeSpeed);
     const nativeLength = curve ? (sampleSourceCurve(curve, 1)[2] - sampleSourceCurve(curve, 0)[2]) * speedScale : 0;
@@ -725,13 +774,23 @@ export class SourceRouteGenerator {
       start: curve && vector(sampleSourceCurve(curve, curve._minTime ?? 0)).applyMatrix4(curveMatrix).toArray(),
       end: curve && vector(sampleSourceCurve(curve, curve._maxTime ?? 1)).applyMatrix4(curveMatrix).toArray(),
     };
-    for (let index = 0; index < beforeSkip; index++) {
-      if (index === skip) continue;
-      const point = curvePointForCoin(rule, index, nativeSpeed, false);
-      result.entities.push({ type: 'coin', x: point[0] * this.unitScale, y: (point[1] + 6) * this.unitScale, distance: point[2] * this.unitScale,
+    const makeCoin = (index, live = context) => {
+      const liveSpeed = (live.levelSpeed ?? live.speed ?? 11) / this.unitScale;
+      const point = curvePointForCoin(rule, index, liveSpeed, false);
+      const entity = { type: 'coin', x: point[0] * this.unitScale, y: (point[1] + 6) * this.unitScale, distance: point[2] * this.unitScale,
         coinCurve: { rule, sourceIndex: index },
         ...this.motionFields(motion, point[2] * this.unitScale),
-        provenance: { ...provenance, component: script.id, coinIndex: index, coinsAtSpawn: count, curvePosition: point, modelCenterY: 6 } });
+        provenance: { ...provenance, component: script.id, coinIndex: index, coinsAtSpawn: count, curvePosition: point, modelCenterY: 6 } };
+      if (motion) entity.distance -= ((live.playerDistance ?? 0) - motion.referencePlayerDistance) * motion.ratio;
+      return entity;
+    };
+    if (context.deferCoins) {
+      this.coinRows.activate({ count: beforeSkip, skip, origin: own.toArray().map(v => v * this.unitScale),
+        flight: context.flight, endDistance: context.endDistance,
+        owner: { key: context.activationKey, chunkId: context.routeChunkId, startDistance: context.startDistance,
+          endDistance: context.endDistance, trackObject: script.id, phase: 'coin-update' }, createCoin: makeCoin });
+    } else for (let index = 0; index < beforeSkip; index++) {
+      if (index !== skip) result.entities.push(makeCoin(index));
     }
     result.decisions.push({ type: 'CoinCurve', scope: provenance.graph, nodeId: node.id, source: script.source, speed: nativeSpeed, spacing, signedLength: nativeLength, count, skippedIndex: skip, scaleMode: fields._scaleMode });
   }

@@ -142,7 +142,7 @@ export class EnvironmentRouteGenerator {
 
   reset(seed) {
     this.source.reset(seed);
-    this.queueActive = false;
+    this.queueActive = false; this.pendingCoinEntities = [];
     this.selector = new EnvironmentSelector(this.bindings, seed);
     this.layout = new EnvironmentLayout(this.bindings, { seed, unitScale: this.unitScale });
     this.queue = new ClassicRouteQueue(this.source, (chunk, context) => this.decorate(chunk, context), this.workerOptions);
@@ -162,7 +162,18 @@ export class EnvironmentRouteGenerator {
 
   get pendingJetpackLanding() { return this.queueActive ? this.queue.pendingJetpackLanding : this.source.pendingJetpackLanding; }
   get minimumJetpackLandingZ() { return this.queueActive ? this.queue.minimumJetpackLandingZ : this.source.minimumJetpackLandingZ; }
-  updateCourse(context, options) { this.queueActive = true; return this.queue.update(context, options); }
+  drainActivations() { return [...this.pendingCoinEntities.splice(0), ...this.queue.drainActivations()]; }
+  drainRetirements() { return this.queue.drainRetirements(); }
+  cancelCoinRow(id) { this.source.coinRows.cancel(id); }
+  flightStarted() { return this.source.coinRows.flightStarted(); }
+  updateCourse(context, options) {
+    this.queueActive = true;
+    // Existing curves advance once per Update. Rows activated by this frame's
+    // route worker begin next Update; Unity's precise inter-component order
+    // has not been measured on-device.
+    this.pendingCoinEntities = this.source.coinRows.update(context);
+    return this.queue.update(context, options);
+  }
 
   decorate(result, context) {
     const fields = result.environmentHints.chunkFields;

@@ -274,7 +274,12 @@ export class RunnerGame {
     // Source grounding timeout uses realtimeSinceStartup; physics and all
     // animation remain paused. A timeout is acted upon only after resuming.
     if (Number.isFinite(realtimeDelta)) this.realtime += Math.max(0, realtimeDelta);
-    if (!this.hasActiveClock) return;
+    if (!this.hasActiveClock) {
+      // Menu/loading still receives route and CoinCurve Updates while the
+      // player clock is idle. A paused run keeps its scene frozen.
+      if (this.state.phase === 'ready') this.ensureCourse();
+      return;
+    }
     this.accumulator += clamp(seconds, 0, 0.1);
     const dt = this.config.fixedStep;
     while (this.accumulator + 1e-10 >= dt && this.hasActiveClock) {
@@ -689,7 +694,13 @@ export class RunnerGame {
       this.fatalHit({ type: 'gap' }, 'caught_fall');
     }
     s.score = s.baseScore + s.coins * this.rawMultiplier * 2;
-    this.entities = this.entities.filter(e => e.distance + (e.depth ?? 0) / 2 > s.distance - c.removeBehind);
+    this.entities = this.entities.filter(e => {
+      // Route-owned groups are retired by the source worker as a unit.
+      const keep = e.routeActivation ? true
+        : e.distance + (e.depth ?? 0) / 2 > s.distance - c.removeBehind;
+      if (!keep) this.routeGenerator?.cancelCoinRow?.(e.coinCurve?.rowId);
+      return keep;
+    });
   }
 
   get rawMultiplier() { return clamp(Math.floor(this.config.playerLevel), 0, 30); }
@@ -744,6 +755,8 @@ export class RunnerGame {
       minimumTargetZ: this.routeGenerator?.minimumJetpackLandingZ ?? 0 });
     flight = this.planFlightLanding(flight);
     s.flight = flight; s.speed = flight.speed; s.powerups.jetpack = flight.timeLeft;
+    const stoppedRows = this.routeGenerator?.flightStarted?.();
+    if (stoppedRows?.size) this.entities = this.entities.filter(e => !stoppedRows.has(e.coinCurve?.rowId));
     this.endRoll('jetpack');
     // JetpackState.Begin82464 calls Character.StopStumble81957. Keep pending
     // death coroutines: their existing flight-state recheck owns cancellation.
@@ -794,6 +807,7 @@ export class RunnerGame {
   collectCoin(coin) {
     if (coin.collected) return;
     coin.collected = true; this.state.coins++;
+    this.routeGenerator?.cancelCoinRow?.(coin.coinCurve?.rowId);
     this.events.push({ type: 'coin', id: coin.id, x: coin.x, y: coin.y });
   }
 
@@ -905,13 +919,20 @@ export class RunnerGame {
   ensureCourse() {
     if (this.routeGenerator?.updateCourse) {
       const chunks = this.routeGenerator.updateCourse({ playerDistance: this.state.distance,
-        speed: this.state.speed, elapsed: this.state.elapsed }, { prime: this.state.phase === 'ready' });
+        speed: this.state.speed, levelSpeed: this.state.levelSpeed, flight: this.state.flight, elapsed: this.state.elapsed }, { prime: this.state.phase === 'ready' });
+      // Partial TrackObject batches are immediately shared by physics/rendering;
+      // final chunk completion records provenance without adding them twice.
+      const retired = new Set(this.routeGenerator.drainRetirements?.() ?? []);
+      if (retired.size) this.entities = this.entities.filter(entity => !retired.has(entity.routeActivation?.key));
+      const activations = this.routeGenerator.drainActivations?.();
+      if (activations) for (const entity of activations) if (!retired.has(entity.routeActivation?.key)) this.addEntity(entity);
       for (const chunk of chunks) {
-        for (const entity of chunk.entities) this.addEntity(entity);
+        if (!activations) for (const entity of chunk.entities) this.addEntity(entity);
         this.routeTrace.push({ startDistance: chunk.provenance.queue.startDistance, length: chunk.length,
           ...chunk.provenance, decisions: chunk.decisions });
         this.sectionCount++;
       }
+      if (this.routeTrace.length > 256) this.routeTrace.splice(0, this.routeTrace.length - 256);
       this.nextSection = this.routeGenerator.queue.spawnedEdge;
       return;
     }

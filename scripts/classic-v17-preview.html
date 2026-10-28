@@ -1,0 +1,22 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>经典模式 · 对象激活与回收验证</title>
+<style>body{margin:0;background:#123839;color:#edf3da;font:14px system-ui}iframe{display:block;border:0;width:100%;height:calc(100dvh - 190px)}nav{display:flex;gap:8px;padding:10px;flex-wrap:wrap}button{padding:8px;border:0;border-radius:6px;background:#e9efce;color:#143e3c}output{display:block;white-space:pre-wrap;padding:0 12px}</style>
+<iframe src="./classic-v9-game.html" title="经典模式场景"></iframe>
+<nav><button id="coins">逐帧金币</button><button id="frame">推进一帧</button><button id="partial">跨帧对象激活</button><button id="turbo">三档冲刺落地</button><button id="roll">落地后翻滚</button><button id="rollend">翻滚结束并跳跃</button><button id="restart">重开验证</button></nav><output>等待资源…</output>
+<script type="module">
+const f=document.querySelector('iframe'),out=document.querySelector('output');let r,label='准备',clock=0,previousCoins=0,lastDelta=0;
+function resume(g){if(g.state.phase==='paused')g.pause();}function stop(g){if(g.state.phase==='running')g.pause();}
+function frame(g){previousCoins=g.entities.filter(e=>e.coinCurve).length;g.advance(1/60);lastDelta=g.entities.filter(e=>e.coinCurve).length-previousCoins;}
+function until(g,predicate,limit=2400){resume(g);for(let i=0;i<limit&&!predicate()&&g.state.phase==='running';i++)frame(g);stop(g);}
+function setup(sliced=false,headstart=false){const g=r.game;Object.assign(g.config,{initialSpeed:11,maximumSpeed:22,acceleration:0,seed:1});g.routeGenerator.workerOptions={now:sliced?()=>clock+=10:()=>performance.now()};g.reset();const intro=g.introOptions;g.introOptions=null;g.headstartOnStart=headstart;g.start();g.headstartOnStart=false;g.introOptions=intro;lastDelta=0;return g;}
+setInterval(()=>{if(!r&&f.contentWindow.__runner?.ready)r=f.contentWindow.__runner;if(!r)return;const g=r.game,s=g.state,p=s.player,q=g.routeGenerator.queue,rows=g.routeGenerator.source.coinRows.rows;
+f.contentDocument.querySelector('#menu').style.visibility=s.phase==='paused'?'hidden':'';if(s.phase==='paused')r.cameraController.reset({characterPosition:[p.x,p.y,s.distance]});
+const incomplete=new Set(q.chunks.filter(c=>c.built&&!c.ready).map(c=>c.id));const partial=g.entities.filter(e=>incomplete.has(e.routeActivation?.chunkId));const pool=r.entityVisualPool.stats;
+out.textContent=`${label} · ${s.phase} · Z ${s.distance.toFixed(3)} · 高度 ${p.y.toFixed(3)} · 接地 ${p.grounded} · 翻滚 ${p.rollRemaining>0}\n构建到 ${q.builtEdge} · 完整就绪 ${q.readyEdge} · 未完成路段已激活 ${partial.length}个实体（模型${partial.filter(e=>e.visual).length} / 碰撞${partial.filter(e=>e.sourceShape).length}）\n金币行 ${rows.size} · 正在生成 ${[...rows.values()].filter(row=>row.spawning).length} · 当前曲线金币 ${g.entities.filter(e=>e.coinCurve).length} · 本帧新增 ${lastDelta}\n模型池：新建 ${pool.created} / 复用 ${pool.reused} / 缓存 ${pool.retained}（上限96） · 逻辑实体 ${g.entities.length} · 渲染实体 ${r.entityObjects.size} · 错误 ${r.errors.join('|')||0}`;},40);
+document.querySelector('#coins').onclick=()=>{stop(setup());label='原版金币行：激活只登记，后续每帧每行至多一枚';};
+document.querySelector('#frame').onclick=()=>{const g=r.game;resume(g);frame(g);stop(g);};
+document.querySelector('#partial').onclick=()=>{const g=setup(true,true);until(g,()=>{const q=g.routeGenerator.queue,ids=new Set(q.chunks.filter(c=>c.built&&!c.ready).map(c=>c.id));const es=g.entities.filter(e=>ids.has(e.routeActivation?.chunkId));return es.some(e=>e.visual)&&es.some(e=>e.sourceShape);});label='预算耗尽测试：同一对象组模型与碰撞已生效，路段仍未完成';};
+document.querySelector('#turbo').onclick=()=>{const g=setup(false,true);let boosts=0;until(g,()=>{if(boosts<2&&g.state.elapsed>=2+boosts*2){g.action('turbo');boosts++;}return !g.state.flight;});resume(g);g.action('right');until(g,()=>g.state.player.grounded);label='三档冲刺：下降换道后落到真实支撑面';};
+document.querySelector('#roll').onclick=()=>{const g=r.game;resume(g);label=`落地翻滚 ${g.action('roll')}`;for(let i=0;i<4;i++)frame(g);stop(g);};
+document.querySelector('#rollend').onclick=()=>{const g=r.game;until(g,()=>g.state.player.rollRemaining<=0,240);resume(g);label=`翻滚结束后跳跃 ${g.action('jump')}`;for(let i=0;i<8;i++)frame(g);stop(g);};
+document.querySelector('#restart').onclick=()=>{stop(setup());label='重新开始：旧对象回收，金币与运动状态重新初始化';};
+</script></html>
