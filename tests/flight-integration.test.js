@@ -77,3 +77,15 @@ test('game pause and Jetpack freeze board cooldown; no inventory is consumed by 
  assert.equal(g.action('board'),false);frames(g,4.3);assert.equal(g.action('board'),true);
  assert.equal(g.state.board.inventory,1);
 });
+
+test('jetpack descent accepts roll, restores the standing capsule, then allows a grounded jump', () => {
+ const g=emptyGame({ initialSpeed:22, maximumSpeed:22 });g.activatePowerup('jetpack');
+ while(g.state.flight)g.advance(1/120);
+ assert.equal(g.state.player.transitionFromHeight,true);
+ assert.ok(g.state.player.y>9.49);assert.equal(g.state.player.controllerEnabled,true);
+ assert.equal(g.action('roll'),true);assert.equal(g.state.player.colliderSqueezed,true);
+ frames(g,1);
+ assert.equal(g.state.player.y,0);assert.equal(g.state.player.colliderSqueezed,false);
+ assert.equal(g.state.player.transitionFromHeight,false);
+ assert.equal(g.action('jump'),true);assert.ok(g.state.player.velocityY>0);
+});

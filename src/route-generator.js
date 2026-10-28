@@ -756,13 +756,23 @@ export class SourceRouteGenerator {
   scheduleJetpackLanding(requestedTarget, leadingEdge, landingRunout = 0) {
     if (![requestedTarget, leadingEdge, landingRunout].every(Number.isFinite) || requestedTarget < 0 || leadingEdge < 0 || landingRunout < 0) throw new Error('Invalid Jetpack landing position');
     const grid = 180 * this.unitScale;
-    const sectionMinimum = this.currentSection
-      ? this.currentSection.startDistance + this.currentSection.fields._lengthMin * this.unitScale : 0;
+    const sectionMinimum = this.minimumJetpackLandingZ;
     const align = value => Math.ceil((value - 1e-9) / grid) * grid;
     const target = align(Math.max(align(requestedTarget), leadingEdge, sectionMinimum));
     this.pendingJetpackLanding = { requestedTarget, target, leadingEdgeAtRequest: leadingEdge,
       currentSectionMinimum: sectionMinimum, landingRunout, adapter: 'browser-queue-packing' };
     return target;
+  }
+
+  get minimumJetpackLandingZ() {
+    return this.currentSection
+      ? this.currentSection.startDistance + this.currentSection.fields._lengthMin * this.unitScale : 0;
+  }
+
+  reserveJetpackLandingRunout(distance) {
+    if (!Number.isFinite(distance) || distance < 0) throw new Error('Invalid Jetpack landing runout');
+    if (!this.pendingJetpackLanding) throw new Error('No pending Jetpack landing');
+    this.pendingJetpackLanding.landingRunout = distance;
   }
 
   fallbackChunkId() {
@@ -775,6 +785,10 @@ export class SourceRouteGenerator {
     const request = this.pendingJetpackLanding;
     const builder = this.settings.objects[this.settings.roots.defaultRoute].fields._defaultRouteBuilder;
     const sectionId = builder._jetpackEndSection.ref, section = this.sectionObject(sectionId);
+    const decisions = [];
+    // ProcessBuildDirectives -> AddSection -> Reset: direct insertion counts
+    // and samples the section, but bypasses GetMidSectionPrefab repeat state.
+    this.resetSection(sectionId, context, decisions);
     const chunkId = 'routes/default/chunks/routechunk_default_jetpack_landing';
     const chunk = this.compileChunk(chunkId, { ...context, sectionId, sectionFields: section.fields });
     if (Math.abs(chunk.length - 180 * this.unitScale) > 1e-7) throw new Error('Source Jetpack landing chunk must be 180 units');
@@ -782,7 +796,7 @@ export class SourceRouteGenerator {
     chunk.provenance.sectionName = section.name;
     chunk.provenance.phase = 'jetpack-landing';
     chunk.provenance.jetpackLanding = { ...request, kind: 'landing' };
-    chunk.decisions.unshift({ type: 'JetpackLandingAdapter', ...request, chunkId });
+    chunk.decisions.unshift(...decisions, { type: 'JetpackLandingAdapter', ...request, chunkId });
     this.pendingJetpackLanding = null;
     const blocks = Math.ceil(Math.max(0, request.landingRunout - chunk.length) / (180 * this.unitScale));
     if (blocks) this.landingSafetyPadding = { ...request, remainingBlocks: blocks, blockCount: blocks,
@@ -835,6 +849,12 @@ export class SourceRouteGenerator {
       recordSectionSpawn(this.sectionStates, sectionId, section.fields, nativeZ, section.fields._lengthMax);
     }
     if (!sectionId) throw new Error('DefaultRoute contains no ordinary start section');
+    this.lastSection = sectionId;
+    this.resetSection(sectionId, context, decisions);
+  }
+
+  resetSection(sectionId, context, decisions) {
+    const nativeZ = context.startDistance / this.unitScale;
     const section = this.sectionObject(sectionId), fields = section.fields;
     const draw = this.random();
     const middleTarget = fields._middleChunkCountMin + Math.floor(draw * (fields._middleChunkCountMax - fields._middleChunkCountMin + 1));
@@ -843,7 +863,6 @@ export class SourceRouteGenerator {
     while (phase < 3 && !pools[phase].length) phase++;
     this.currentSection = { id: sectionId, object: section, fields, pools, phase, middleTarget, middleUsed: 0, picked: new Set(), startDistance: context.startDistance };
     this.sectionCount++;
-    this.lastSection = sectionId;
     decisions.push({ type: 'RouteSection', sectionId, name: section.name, nativeZ, sectionCountUsed: this.sectionCount, targetDraw: draw, middleTarget, source: section.source });
   }
 

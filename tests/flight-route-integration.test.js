@@ -91,3 +91,37 @@ test('4000 emitted chunks retain continuous bounds while repeated landing reques
   assert.ok(landings >= 100 && safetyBlocks >= 100);
   assert.equal(landings, safetyBlocks);
 });
+
+test('36 long upgraded flights preserve a continuous runway through touchdown in all lanes while speed ramps', () => {
+  for (const initialSpeed of [11, 17, 22]) for (const lane of [0, 1, 2]) for (let seed = 1; seed <= 4; seed++) {
+    const game = new RunnerGame({ seed, initialSpeed, maximumSpeed: 22, powerupTier: 6 });
+    game.setRouteGenerator(generator(seed)); game.start();
+    // Takeoff from an elevated surface must still settle to the native 9.5.
+    game.state.player.y = seed % 2 ? 3 : 0;
+    game.activatePowerup('jetpack');
+    if (lane !== 1) game.action(lane === 0 ? 'left' : 'right');
+    const target = game.state.flight.targetZ; let landed = false;
+    for (let i = 0; i < 5000; i++) {
+      game.advance(1 / 120);
+      assert.equal(game.state.phase, 'running', `speed=${initialSpeed}, lane=${lane}, seed=${seed}, z=${game.state.distance}`);
+      if (!game.state.flight && game.state.player.grounded) { landed = true; break; }
+    }
+    assert.ok(landed); assert.equal(game.state.player.y, 0);
+    assert.equal(game.state.player.lane, lane);
+    const runway = game.routeTrace.filter(c => ['landing', 'landing-safety-padding'].includes(c.jetpackLanding?.kind));
+    assert.equal(runway[0].startDistance, target);
+    for (let i = 1; i < runway.length; i++) assert.equal(runway[i].startDistance, runway[i - 1].startDistance + runway[i - 1].length);
+    const safeEnd = runway.at(-1).startDistance + runway.at(-1).length;
+    assert.ok(game.state.distance + game.config.playerRadius <= safeEnd, 'reserve includes touchdown capsule, not just takeoff-speed prediction');
+    if (initialSpeed === 17) {
+      assert.equal(runway.length, 2);
+      assert.ok(game.state.speed > 18.6);
+      assert.ok(game.state.distance > target + 18, 'regression: old runway ended before touchdown');
+    }
+    // Ground contact and animation landing are distinct native iterations.
+    game.drainEvents(); game.advance(1 / 120);
+    assert.equal(game.drainEvents().filter(e => e.type === 'land').length, 1);
+    game.advance(1 / 120);
+    assert.equal(game.drainEvents().filter(e => e.type === 'land').length, 0);
+  }
+});

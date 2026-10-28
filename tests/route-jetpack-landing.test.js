@@ -96,3 +96,23 @@ test('default SpawnPoint effect support now includes the original Jetpack candid
   source.scheduleJetpackLanding(18, 0);
   assert.throws(() => source.nextChunk({ startDistance: 36 }), /passed the scheduled/);
 });
+
+test('direct landing counts and resets its section without advancing random midsection repeat state', () => {
+  const source = new SourceRouteGenerator(library);
+  let edge = 0;
+  for (let i = 0; i < 12; i++) edge += source.nextChunk({ startDistance: edge, speed: 22 }).length;
+  const target = source.scheduleJetpackLanding(edge + 36, edge);
+  while (edge < target) edge += source.nextChunk({ startDistance: edge, speed: 22 }).length;
+  const count = source.sectionCount, previous = source.lastSection;
+  const repeats = structuredClone(source.sectionStates);
+  const random = source.random; let draws = 0;
+  source.random = () => { draws++; return random(); };
+  const chunk = source.nextChunk({ startDistance: edge, speed: 22 });
+  assert.equal(source.sectionCount, count + 1);
+  assert.equal(source.lastSection, previous);
+  assert.deepEqual(source.sectionStates, repeats);
+  assert.equal(draws, 1, 'native Reset samples the fixed middle count');
+  const reset = chunk.decisions.find(d => d.type === 'RouteSection');
+  assert.equal(reset.middleTarget, 1);
+  assert.equal(reset.sectionCountUsed, count + 1);
+});

@@ -1,0 +1,20 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>经典模式 · 喷气背包落地验证</title>
+<style>body{margin:0;background:#123839;color:#edf3da;font:14px system-ui}iframe{display:block;border:0;width:100%;height:calc(100dvh - 150px)}nav{display:flex;gap:8px;padding:10px;flex-wrap:wrap}button{padding:8px;border:0;border-radius:6px;background:#e9efce;color:#143e3c}output{display:block;white-space:pre-wrap;padding:0 12px}</style>
+<iframe src="/scripts/classic-v9-game.html" title="经典模式场景"></iframe>
+<nav><button id="prepare">长时飞行结束前</button><button id="exit">恢复普通重力</button><button id="half">下降0.5秒</button><button id="land">首次落地</button><button id="roll">翻滚接跳跃</button></nav><output>等待资源…</output>
+<script type="module">
+const f=document.querySelector('iframe'),out=document.querySelector('output');let r,label='准备',target=0,trace=[];
+function resume(g){if(g.state.phase==='paused')g.pause();}
+function stop(g){if(g.state.phase==='running')g.pause();}
+function stepUntil(g,predicate,limit=5000){resume(g);for(let i=0;i<limit&&!predicate();i++)g.advance(1/120);stop(g);}
+setInterval(()=>{if(!r&&f.contentWindow.__runner?.ready)r=f.contentWindow.__runner;if(!r)return;const g=r.game,s=g.state,p=s.player;f.contentDocument.querySelector('#menu').style.visibility=s.phase==='paused'?'hidden':'';
+// Manual simulation jumps bypass render frames; keep the QA camera at the inspected pose.
+if(s.phase==='paused')r.cameraController.reset({characterPosition:[p.x,p.y,s.distance]});
+const runway=g.routeTrace.filter(c=>['landing','landing-safety-padding'].includes(c.jetpackLanding?.kind));
+out.textContent=`${label} · 状态 ${s.phase} · 速度 ${s.speed.toFixed(3)} · 飞行 ${!!s.flight}\n目标 ${target.toFixed(2)} · 位置 ${s.distance.toFixed(3)} · 高度 ${p.y.toFixed(3)} · 垂直速度 ${p.velocityY.toFixed(3)} · 接地 ${p.grounded} · 压缩碰撞体 ${p.colliderSqueezed}\n落地段 ${runway.map(c=>`${c.startDistance}–${c.startDistance+c.length}`).join(' → ')} · ${trace.join(' → ')} · 游戏错误 ${r.errors.join('|')||0}`;},40);
+document.querySelector('#prepare').onclick=()=>{const g=r.game;Object.assign(g.config,{initialSpeed:17,maximumSpeed:22,powerupTier:6,seed:5});g.reset();const opts=g.introOptions;g.introOptions=null;g.start();g.introOptions=opts;g.activatePowerup('jetpack');target=g.state.flight.targetZ;stepUntil(g,()=>g.state.distance>=target-1);g.drainEvents();trace=[];r.cameraController.reset({characterPosition:[g.state.player.x,g.state.player.y,g.state.distance]});label='原版目标边界前，长时飞行';};
+document.querySelector('#exit').onclick=()=>{const g=r.game;stepUntil(g,()=>!g.state.flight);trace=g.events.map(e=>e.type);label='已恢复跑速与碰撞，自由下落';};
+document.querySelector('#half').onclick=()=>{const g=r.game;resume(g);for(let i=0;i<60;i++)g.advance(1/120);stop(g);label='下降中';};
+document.querySelector('#land').onclick=()=>{const g=r.game;stepUntil(g,()=>!g.state.flight&&g.state.player.grounded);resume(g);g.advance(1/120);stop(g);trace=g.events.map(e=>e.type);label='完整落地；旧18单位空地已不足';};
+document.querySelector('#roll').onclick=()=>{const g=r.game;resume(g);const ok=g.action('roll');label=`翻滚 ${ok}`;setTimeout(()=>{const jumped=g.action('jump');label=`翻滚结束，跳跃 ${jumped}`;setTimeout(()=>stop(g),250);},700);};
+</script></html>

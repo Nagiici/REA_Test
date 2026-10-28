@@ -6,7 +6,7 @@ import { trainBodyAt } from './classic-train-body.js';
 import { moveControllerSwept } from './classic-controller-move.js';
 import { classicVerticalMotion } from './classic-vertical.js';
 import { CLASSIC_CONTROLLER, controllerInterval, expandController } from './classic-controller.js';
-import { Jetpack } from './jetpack.js';
+import { Jetpack, landingRunout } from './jetpack.js';
 import { makeFlightCoins } from './flight-coins.js';
 import { makeHeadstartRewards } from './headstart-rewards.js';
 import { Hoverboard, HOVERBOARD_BROWSER_ADAPTER } from './hoverboard.js';
@@ -439,9 +439,7 @@ export class RunnerGame {
       const oldTarget = s.flight.targetZ;
       let flight = this.jetpack.step(dt, { distance: previousDistance });
       if (flight.active && flight.headstart && flight.targetZ !== oldTarget) {
-        const target = this.routeGenerator?.scheduleJetpackLanding?.(flight.targetZ, this.nextSection,
-          c.maximumSpeed * Math.sqrt(2 * 12 / c.gravity) + c.playerRadius + c.maximumSpeed * dt * 2);
-        if (target != null) flight = this.jetpack.extendTarget(target);
+        flight = this.planFlightLanding(flight);
         this.placeHeadstartRewards(flight);
       }
       if (!flight.active) {
@@ -741,11 +739,9 @@ export class RunnerGame {
 
   beginFlight(headstart) {
     const s = this.state, p = s.player;
-    let flight = this.jetpack.begin({ distance: s.distance, y: p.y, levelSpeed: s.levelSpeed, headstart });
-    const landingSpeed = headstart ? this.config.maximumSpeed : s.levelSpeed;
-    const target = this.routeGenerator?.scheduleJetpackLanding?.(flight.targetZ, this.nextSection,
-      landingSpeed * Math.sqrt(2 * (headstart ? 12 : 9.5) / this.config.gravity) + this.config.playerRadius + landingSpeed * this.config.fixedStep * 2);
-    if (target != null) flight = this.jetpack.extendTarget(target);
+    let flight = this.jetpack.begin({ distance: s.distance, y: p.y, levelSpeed: s.levelSpeed, headstart,
+      minimumTargetZ: this.routeGenerator?.minimumJetpackLandingZ ?? 0 });
+    flight = this.planFlightLanding(flight);
     s.flight = flight; s.speed = flight.speed; s.powerups.jetpack = flight.timeLeft;
     this.endRoll('jetpack');
     // JetpackState.Begin82464 calls Character.StopStumble81957. Keep pending
@@ -757,6 +753,17 @@ export class RunnerGame {
     // Headstart bypasses the ordinary jetpack coin-line branch.
     else for (const coin of makeFlightCoins({ start: flight.coinStartDistance,
       length: Math.max(0, flight.coinLength), height: 9.5, random: this.random }).coins) this.addEntity(coin);
+  }
+
+  planFlightLanding(flight) {
+    const target = this.routeGenerator?.scheduleJetpackLanding?.(flight.targetZ, this.nextSection);
+    if (target == null) return flight;
+    flight = this.jetpack.extendTarget(target);
+    // Evaluate clearance AFTER packing the target; a later target means more
+    // speed-ramp time. Already built course and obstacle collision stay intact.
+    this.routeGenerator.reserveJetpackLandingRunout?.(landingRunout(flight,
+      { ...this.config, distance: this.state.distance, levelSpeed: this.state.levelSpeed }));
+    return flight;
   }
 
   placeHeadstartRewards(flight) {

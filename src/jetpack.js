@@ -26,6 +26,19 @@ export const JETPACK = Object.freeze({
 const clamp01 = value => Math.max(0, Math.min(1, value));
 const smoothstep = value => { const t = clamp01(value); return t * t * (3 - 2 * t); };
 
+/** Browser clearance adapter, not a recovered native extra landing section.
+ * Reserve for the speed at touchdown, including the level ramp during flight.
+ * The two forward steps cover target overshoot and fixed-step handoff; ordinary
+ * flight still ends at targetZ with zero vertical speed and normal gravity. */
+export function landingRunout(flight, { distance, levelSpeed, maximumSpeed, acceleration, gravity, fixedStep, playerRadius }) {
+  const height = flight.headstart ? HEADSTART[flight.headstartTier].height : JETPACK.height;
+  const fallSeconds = Math.sqrt(2 * height / gravity);
+  const remainingFlight = Math.max(0, flight.targetZ - distance) / flight.speed + fixedStep;
+  const endSpeed = flight.headstart ? maximumSpeed : Math.min(maximumSpeed,
+    levelSpeed + Math.max(0, acceleration) * (remainingFlight + fallSeconds + fixedStep));
+  return endSpeed * fallSeconds + playerRadius + (flight.speed + endSpeed) * fixedStep;
+}
+
 export class Jetpack {
   constructor({ tier = 0 } = {}) {
     if (!Number.isInteger(tier) || tier < 0 || tier >= JETPACK_SECONDS.length) throw new RangeError('Invalid jetpack upgrade tier');
@@ -68,9 +81,10 @@ export class Jetpack {
     this.duration = headstart ? HEADSTART[0].seconds - JETPACK.takeoffSeconds : JETPACK_SECONDS[this.tier];
     this.takeoffDistance = this.speed * JETPACK.takeoffSeconds;
     const desired = distance + this.speed * (this.duration + JETPACK.takeoffSeconds) - JETPACK.landingLength / 2;
-    // The source minimum section endpoint is itself grid-aligned. A web caller
-    // may supply an already-planned safe endpoint; it is never shortened here.
-    this.targetZ = Math.max(minimumTargetZ, Math.ceil(desired / JETPACK.targetGrid) * JETPACK.targetGrid);
+    // Begin82464 0x22cc7d0..820 compares BEFORE rounding. The minimum branch
+    // truncates native units; the other branch rounds to the 180-unit grid.
+    this.targetZ = minimumTargetZ > desired ? Math.trunc(minimumTargetZ * 10) / 10
+      : Math.ceil(desired / JETPACK.targetGrid) * JETPACK.targetGrid;
     const stopMargin = JETPACK.stopBeforeLanding * levelSpeed / JETPACK.normalMinSpeed;
     this.initialTimeLeft = (this.targetZ - distance - stopMargin) / this.speed;
     this.timeLeft = Math.max(0, this.initialTimeLeft);

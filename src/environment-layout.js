@@ -153,6 +153,8 @@ export class EnvironmentRouteGenerator {
   }
 
   get pendingJetpackLanding() { return this.source.pendingJetpackLanding; }
+  get minimumJetpackLandingZ() { return this.source.minimumJetpackLandingZ; }
+  reserveJetpackLandingRunout(distance) { this.source.reserveJetpackLandingRunout(distance); }
 
   decorate(result, context) {
     const fields = result.environmentHints.chunkFields;
